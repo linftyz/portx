@@ -56,6 +56,15 @@ pub enum PortWarning {
     PublicGlobalBind,
 }
 
+impl fmt::Display for PortWarning {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PublicWildcardBind => formatter.write_str("public wildcard bind"),
+            Self::PublicGlobalBind => formatter.write_str("public global bind"),
+        }
+    }
+}
+
 pub fn warnings_for_listener(listener: &ListenerRecord) -> Vec<PortWarning> {
     match listener.bind_addr {
         IpAddr::V4(Ipv4Addr::UNSPECIFIED) | IpAddr::V6(Ipv6Addr::UNSPECIFIED) => {
@@ -63,5 +72,61 @@ pub fn warnings_for_listener(listener: &ListenerRecord) -> Vec<PortWarning> {
         }
         _ if listener.scope == Scope::Public => vec![PortWarning::PublicGlobalBind],
         _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flags_unspecified_bind_as_public_wildcard() {
+        let listener = ListenerRecord {
+            port: 3000,
+            protocol: Protocol::Tcp,
+            bind_addr: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            scope: Scope::Public,
+            pid: Some(1),
+            process_name: None,
+            command: None,
+        };
+
+        assert_eq!(
+            warnings_for_listener(&listener),
+            vec![PortWarning::PublicWildcardBind]
+        );
+    }
+
+    #[test]
+    fn flags_public_global_bind_without_wildcard() {
+        let listener = ListenerRecord {
+            port: 3000,
+            protocol: Protocol::Tcp,
+            bind_addr: "8.8.8.8".parse().unwrap(),
+            scope: Scope::Public,
+            pid: Some(1),
+            process_name: None,
+            command: None,
+        };
+
+        assert_eq!(
+            warnings_for_listener(&listener),
+            vec![PortWarning::PublicGlobalBind]
+        );
+    }
+
+    #[test]
+    fn does_not_flag_local_listener() {
+        let listener = ListenerRecord {
+            port: 3000,
+            protocol: Protocol::Tcp,
+            bind_addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            scope: Scope::Local,
+            pid: Some(1),
+            process_name: None,
+            command: None,
+        };
+
+        assert!(warnings_for_listener(&listener).is_empty());
     }
 }

@@ -1,4 +1,4 @@
-use crate::core::{ListenerRecord, PortDetails};
+use crate::core::{ListenerRecord, PortDetails, PortWarning, warnings_for_listener};
 
 pub fn print_list(records: &[ListenerRecord]) {
     if records.is_empty() {
@@ -7,12 +7,13 @@ pub fn print_list(records: &[ListenerRecord]) {
     }
 
     println!(
-        "{:<8} {:<6} {:<7} {:<8} {:<24} PROCESS",
-        "PORT", "PROTO", "SCOPE", "PID", "ADDRESS"
+        "{:<8} {:<6} {:<7} {:<8} {:<24} {:<18} WARNINGS",
+        "PORT", "PROTO", "SCOPE", "PID", "ADDRESS", "PROCESS"
     );
     for record in records {
+        let warnings = format_warnings(&warnings_for_listener(record));
         println!(
-            "{:<8} {:<6} {:<7} {:<8} {:<24} {}",
+            "{:<8} {:<6} {:<7} {:<8} {:<24} {:<18} {}",
             record.port,
             record.protocol,
             record.scope,
@@ -20,7 +21,8 @@ pub fn print_list(records: &[ListenerRecord]) {
                 .pid
                 .map_or_else(|| "N/A".to_string(), |pid| pid.to_string()),
             record.bind_addr,
-            record.process_name.as_deref().unwrap_or("N/A")
+            record.process_name.as_deref().unwrap_or("N/A"),
+            warnings
         );
     }
 }
@@ -31,7 +33,15 @@ pub fn print_details(details: &[PortDetails]) {
         return;
     }
 
-    for detail in details {
+    for (index, detail) in details.iter().enumerate() {
+        if index > 0 {
+            println!();
+            println!("{}", "-".repeat(72));
+        }
+
+        if details.len() > 1 {
+            println!("Entry: {}/{}", index + 1, details.len());
+        }
         println!("Port: {}", detail.listener.port);
         println!("Protocol: {}", detail.listener.protocol);
         println!("Scope: {}", detail.listener.scope);
@@ -89,7 +99,7 @@ pub fn print_details(details: &[PortDetails]) {
                 .connection_count
                 .map_or_else(|| "N/A".to_string(), |connections| connections.to_string())
         );
-        println!("Warnings: {:?}", detail.warnings);
+        println!("Warnings: {}", format_warnings(&detail.warnings));
     }
 }
 
@@ -105,5 +115,17 @@ pub fn print_watch_placeholder(port: u16, pid: Option<u32>) {
     match pid {
         Some(pid) => println!("Watch placeholder: monitoring port {port} for PID {pid}."),
         None => println!("Watch placeholder: monitoring port {port}."),
+    }
+}
+
+fn format_warnings(warnings: &[PortWarning]) -> String {
+    if warnings.is_empty() {
+        "-".to_string()
+    } else {
+        warnings
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
