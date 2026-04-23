@@ -66,8 +66,8 @@ impl PortService {
         }
     }
 
-    pub fn watch(&self, _port: u16, _pid: Option<u32>) -> Result<()> {
-        Ok(())
+    pub fn watch(&self, port: u16, pid: Option<u32>) -> Result<Vec<PortDetails>> {
+        self.info(port, pid)
     }
 }
 

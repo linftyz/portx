@@ -1,3 +1,5 @@
+use std::{thread, time::Duration};
+
 use crate::{
     cli::{Cli, Command},
     core::{PortService, build_kill_plan, execute_kill},
@@ -27,10 +29,11 @@ pub fn execute(cli: Cli) -> Result<()> {
             let result = execute_kill(&service, plan)?;
             output::print_kill_result(&result);
         }
-        Command::Watch(args) => {
-            service.watch(args.port, args.pid)?;
-            output::print_watch_placeholder(args.port, args.pid);
-        }
+        Command::Watch(args) => loop {
+            let details = service.watch(args.port, args.pid)?;
+            output::print_watch_snapshot(args.port, args.pid, &details)?;
+            thread::sleep(Duration::from_secs(1));
+        },
     }
 
     Ok(())

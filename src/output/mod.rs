@@ -55,3 +55,7 @@ pub fn print_kill_result(result: &KillResult) {
 pub fn print_watch_placeholder(port: u16, pid: Option<u32>) {
     text::print_watch_placeholder(port, pid);
 }
+
+pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]) -> Result<()> {
+    text::print_watch_snapshot(port, pid, details)
+}

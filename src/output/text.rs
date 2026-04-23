@@ -1,4 +1,7 @@
-use std::io::{self, IsTerminal, Write};
+use std::{
+    io::{self, IsTerminal, Write},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::{
     core::{KillPlan, KillResult, ListenerRecord, PortDetails, PortWarning, warnings_for_listener},
@@ -157,6 +160,27 @@ pub fn print_watch_placeholder(port: u16, pid: Option<u32>) {
     }
 }
 
+pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]) -> Result<()> {
+    clear_screen();
+    println!("portx watch");
+    println!("Port: {port}");
+    println!(
+        "PID filter: {}",
+        pid.map_or_else(|| "-".to_string(), |pid| pid.to_string())
+    );
+    println!("Updated: {}", unix_timestamp_seconds());
+    println!("Press Ctrl-C to stop.");
+    println!();
+
+    if details.is_empty() {
+        println!("Port {port} is not currently listening.");
+        return Ok(());
+    }
+
+    print_details(details);
+    Ok(())
+}
+
 fn format_warnings(warnings: &[PortWarning]) -> String {
     if warnings.is_empty() {
         "-".to_string()
@@ -171,4 +195,15 @@ fn format_warnings(warnings: &[PortWarning]) -> String {
 
 fn is_tty() -> bool {
     std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+fn clear_screen() {
+    print!("\x1B[2J\x1B[H");
+}
+
+fn unix_timestamp_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
 }
