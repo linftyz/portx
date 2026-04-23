@@ -1,4 +1,8 @@
-use std::{fmt, net::IpAddr, path::PathBuf};
+use std::{
+    fmt,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    path::PathBuf,
+};
 
 use serde::Serialize;
 
@@ -50,4 +54,14 @@ pub struct PortDetails {
 pub enum PortWarning {
     PublicWildcardBind,
     PublicGlobalBind,
+}
+
+pub fn warnings_for_listener(listener: &ListenerRecord) -> Vec<PortWarning> {
+    match listener.bind_addr {
+        IpAddr::V4(Ipv4Addr::UNSPECIFIED) | IpAddr::V6(Ipv6Addr::UNSPECIFIED) => {
+            vec![PortWarning::PublicWildcardBind]
+        }
+        _ if listener.scope == Scope::Public => vec![PortWarning::PublicGlobalBind],
+        _ => Vec::new(),
+    }
 }

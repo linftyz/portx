@@ -1,7 +1,10 @@
 use crate::{
-    core::{ListenerRecord, PortDetails, Scope},
+    core::{ListenerRecord, PortDetails, Scope, warnings_for_listener},
     error::Result,
-    platform::sockets,
+    platform::{
+        process::{ProcessInfo, ProcessSnapshot},
+        sockets,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -9,46 +12,27 @@ pub struct PortService;
 
 impl PortService {
     pub fn list(&self, scope: Option<Scope>) -> Result<Vec<ListenerRecord>> {
-        let mut records = sockets::listening_sockets()?
-            .into_iter()
-            .flat_map(|socket| {
-                let scope = Scope::classify(socket.bind_addr);
-
-                if socket.pids.is_empty() {
-                    return vec![ListenerRecord {
-                        port: socket.port,
-                        protocol: socket.protocol,
-                        bind_addr: socket.bind_addr,
-                        scope,
-                        pid: None,
-                        process_name: None,
-                        command: None,
-                    }];
-                }
-
-                socket
-                    .pids
-                    .into_iter()
-                    .map(|pid| ListenerRecord {
-                        port: socket.port,
-                        protocol: socket.protocol,
-                        bind_addr: socket.bind_addr,
-                        scope,
-                        pid: Some(pid),
-                        process_name: None,
-                        command: None,
-                    })
-                    .collect()
-            })
-            .filter(|record| scope.is_none_or(|scope| record.scope == scope))
-            .collect::<Vec<_>>();
+        let processes = ProcessSnapshot::capture();
+        let mut records = collect_listener_records(scope, &processes)?;
 
         sort_listener_records(&mut records);
         Ok(records)
     }
 
-    pub fn info(&self, _port: u16, _pid: Option<u32>) -> Result<Vec<PortDetails>> {
-        Ok(Vec::new())
+    pub fn info(&self, port: u16, pid: Option<u32>) -> Result<Vec<PortDetails>> {
+        let processes = ProcessSnapshot::capture();
+        let mut records =
+            filter_records_for_info(collect_listener_records(None, &processes)?, port, pid);
+
+        sort_listener_records(&mut records);
+
+        Ok(records
+            .into_iter()
+            .map(|record| {
+                let process = record.pid.and_then(|pid| processes.get(pid));
+                record_to_details(record, process)
+            })
+            .collect())
     }
 
     pub fn find(&self, _process_name: &str, _scope: Option<Scope>) -> Result<Vec<ListenerRecord>> {
@@ -62,6 +46,80 @@ impl PortService {
     pub fn watch(&self, _port: u16, _pid: Option<u32>) -> Result<()> {
         Ok(())
     }
+}
+
+fn collect_listener_records(
+    scope: Option<Scope>,
+    processes: &ProcessSnapshot,
+) -> Result<Vec<ListenerRecord>> {
+    Ok(sockets::listening_sockets()?
+        .into_iter()
+        .flat_map(|socket| {
+            let scope = Scope::classify(socket.bind_addr);
+
+            if socket.pids.is_empty() {
+                return vec![ListenerRecord {
+                    port: socket.port,
+                    protocol: socket.protocol,
+                    bind_addr: socket.bind_addr,
+                    scope,
+                    pid: None,
+                    process_name: None,
+                    command: None,
+                }];
+            }
+
+            socket
+                .pids
+                .into_iter()
+                .map(|pid| {
+                    let process = processes.get(pid);
+
+                    ListenerRecord {
+                        port: socket.port,
+                        protocol: socket.protocol,
+                        bind_addr: socket.bind_addr,
+                        scope,
+                        pid: Some(pid),
+                        process_name: process.and_then(|process| process.name.clone()),
+                        command: process.and_then(|process| process.command.clone()),
+                    }
+                })
+                .collect()
+        })
+        .filter(|record| scope.is_none_or(|scope| record.scope == scope))
+        .collect())
+}
+
+fn record_to_details(mut listener: ListenerRecord, process: Option<&ProcessInfo>) -> PortDetails {
+    if let Some(process) = process {
+        listener.process_name = listener.process_name.or_else(|| process.name.clone());
+        listener.command = listener.command.or_else(|| process.command.clone());
+    }
+
+    PortDetails {
+        warnings: warnings_for_listener(&listener),
+        listener,
+        cwd: process.and_then(|process| process.cwd.clone()),
+        user: process.and_then(|process| process.user.clone()),
+        cpu_percent: process.and_then(|process| process.cpu_percent),
+        memory_bytes: process.and_then(|process| process.memory_bytes),
+        thread_count: process.and_then(|process| process.thread_count),
+        uptime_seconds: process.and_then(|process| process.uptime_seconds),
+        connection_count: None,
+    }
+}
+
+fn filter_records_for_info(
+    records: Vec<ListenerRecord>,
+    port: u16,
+    pid: Option<u32>,
+) -> Vec<ListenerRecord> {
+    records
+        .into_iter()
+        .filter(|record| record.port == port)
+        .filter(|record| pid.is_none_or(|pid| record.pid == Some(pid)))
+        .collect()
 }
 
 fn sort_listener_records(records: &mut [ListenerRecord]) {
@@ -83,9 +141,12 @@ fn protocol_rank(protocol: crate::core::Protocol) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        path::PathBuf,
+    };
 
-    use crate::core::Protocol;
+    use crate::{core::Protocol, platform::process::ProcessInfo};
 
     use super::*;
 
@@ -133,6 +194,53 @@ mod tests {
                     Some(2)
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn filters_info_records_by_port_and_optional_pid() {
+        let records = vec![
+            record(3000, Ipv4Addr::LOCALHOST, Protocol::Tcp, Some(10)),
+            record(3000, Ipv4Addr::LOCALHOST, Protocol::Tcp, Some(20)),
+            record(4000, Ipv4Addr::LOCALHOST, Protocol::Tcp, Some(10)),
+        ];
+
+        let all_for_port = filter_records_for_info(records.clone(), 3000, None);
+        let pid_for_port = filter_records_for_info(records, 3000, Some(20));
+
+        assert_eq!(all_for_port.len(), 2);
+        assert_eq!(pid_for_port.len(), 1);
+        assert_eq!(pid_for_port[0].pid, Some(20));
+    }
+
+    #[test]
+    fn builds_details_from_listener_and_process_info() {
+        let listener = record(3000, Ipv4Addr::UNSPECIFIED, Protocol::Tcp, Some(10));
+        let process = ProcessInfo {
+            pid: 10,
+            name: Some("demo".to_string()),
+            command: Some("demo --serve".to_string()),
+            cwd: Some(PathBuf::from("/tmp/demo")),
+            user: Some("alice".to_string()),
+            cpu_percent: Some(2.5),
+            memory_bytes: Some(1024),
+            thread_count: Some(4),
+            uptime_seconds: Some(30),
+        };
+
+        let details = record_to_details(listener, Some(&process));
+
+        assert_eq!(details.listener.process_name.as_deref(), Some("demo"));
+        assert_eq!(details.listener.command.as_deref(), Some("demo --serve"));
+        assert_eq!(details.cwd, Some(PathBuf::from("/tmp/demo")));
+        assert_eq!(details.user.as_deref(), Some("alice"));
+        assert_eq!(details.cpu_percent, Some(2.5));
+        assert_eq!(details.memory_bytes, Some(1024));
+        assert_eq!(details.thread_count, Some(4));
+        assert_eq!(details.uptime_seconds, Some(30));
+        assert_eq!(
+            details.warnings,
+            vec![crate::core::PortWarning::PublicWildcardBind]
         );
     }
 
