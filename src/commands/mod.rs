@@ -11,15 +11,15 @@ pub fn execute(cli: Cli) -> Result<()> {
     match cli.command.unwrap_or_default() {
         Command::List(args) => {
             let ports = service.list(args.scope.map(Into::into))?;
-            output::print_list(&ports, args.json)?;
+            output::print_list(&ports, args.scope, args.json)?;
         }
         Command::Info(args) => {
             let details = service.info(args.port, args.pid)?;
-            output::print_details(&details, args.json)?;
+            output::print_details(&details, args.port, args.pid, args.json)?;
         }
         Command::Find(args) => {
             let ports = service.find(&args.process_name, args.scope.map(Into::into))?;
-            output::print_list(&ports, args.json)?;
+            output::print_find(&ports, &args.process_name, args.scope, args.json)?;
         }
         Command::Kill(args) => {
             service.kill(args.port, args.pid, args.force, args.yes)?;

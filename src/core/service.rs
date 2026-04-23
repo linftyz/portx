@@ -35,8 +35,15 @@ impl PortService {
             .collect())
     }
 
-    pub fn find(&self, _process_name: &str, _scope: Option<Scope>) -> Result<Vec<ListenerRecord>> {
-        Ok(Vec::new())
+    pub fn find(&self, process_name: &str, scope: Option<Scope>) -> Result<Vec<ListenerRecord>> {
+        let processes = ProcessSnapshot::capture();
+        let mut records = collect_listener_records(scope, &processes)?
+            .into_iter()
+            .filter(|record| matches_process_name(record, process_name))
+            .collect::<Vec<_>>();
+
+        sort_listener_records(&mut records);
+        Ok(records)
     }
 
     pub fn kill(&self, _port: u16, _pid: Option<u32>, _force: bool, _yes: bool) -> Result<()> {
@@ -120,6 +127,20 @@ fn filter_records_for_info(
         .filter(|record| record.port == port)
         .filter(|record| pid.is_none_or(|pid| record.pid == Some(pid)))
         .collect()
+}
+
+fn matches_process_name(record: &ListenerRecord, needle: &str) -> bool {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return false;
+    }
+
+    let needle = needle.to_lowercase();
+    record
+        .process_name
+        .as_ref()
+        .map(|name| name.to_lowercase().contains(&needle))
+        .unwrap_or(false)
 }
 
 fn sort_listener_records(records: &mut [ListenerRecord]) {
@@ -242,6 +263,17 @@ mod tests {
             details.warnings,
             vec![crate::core::PortWarning::PublicWildcardBind]
         );
+    }
+
+    #[test]
+    fn matches_process_name_case_insensitively() {
+        let mut record = record(3000, Ipv4Addr::LOCALHOST, Protocol::Tcp, Some(10));
+        record.process_name = Some("Node".to_string());
+
+        assert!(matches_process_name(&record, "node"));
+        assert!(matches_process_name(&record, "od"));
+        assert!(!matches_process_name(&record, "python"));
+        assert!(!matches_process_name(&record, ""));
     }
 
     fn record(
