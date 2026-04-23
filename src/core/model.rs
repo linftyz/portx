@@ -2,6 +2,8 @@ use std::{fmt, net::IpAddr, path::PathBuf};
 
 use serde::Serialize;
 
+use super::Scope;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Protocol {
@@ -14,24 +16,6 @@ impl fmt::Display for Protocol {
         match self {
             Self::Tcp => formatter.write_str("TCP"),
             Self::Udp => formatter.write_str("UDP"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Scope {
-    Public,
-    Lan,
-    Local,
-}
-
-impl fmt::Display for Scope {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Public => formatter.write_str("PUBLIC"),
-            Self::Lan => formatter.write_str("LAN"),
-            Self::Local => formatter.write_str("LOCAL"),
         }
     }
 }

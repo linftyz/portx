@@ -1,17 +1,9 @@
-use crate::{
-    domain::{ListenerRecord, PortDetails},
-    error::Result,
-};
+use crate::core::{ListenerRecord, PortDetails};
 
-pub fn print_list(records: &[ListenerRecord], json: bool) -> Result<()> {
-    if json {
-        println!("{}", serde_json::to_string_pretty(records)?);
-        return Ok(());
-    }
-
+pub fn print_list(records: &[ListenerRecord]) {
     if records.is_empty() {
         println!("No listening ports found.");
-        return Ok(());
+        return;
     }
 
     println!(
@@ -31,19 +23,12 @@ pub fn print_list(records: &[ListenerRecord], json: bool) -> Result<()> {
             record.process_name.as_deref().unwrap_or("N/A")
         );
     }
-
-    Ok(())
 }
 
-pub fn print_details(details: &[PortDetails], json: bool) -> Result<()> {
-    if json {
-        println!("{}", serde_json::to_string_pretty(details)?);
-        return Ok(());
-    }
-
+pub fn print_details(details: &[PortDetails]) {
     if details.is_empty() {
         println!("No details found for this port.");
-        return Ok(());
+        return;
     }
 
     for detail in details {
@@ -106,8 +91,6 @@ pub fn print_details(details: &[PortDetails], json: bool) -> Result<()> {
         );
         println!("Warnings: {:?}", detail.warnings);
     }
-
-    Ok(())
 }
 
 pub fn print_kill_placeholder(port: u16, pid: Option<u32>, force: bool) {

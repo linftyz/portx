@@ -1,5 +1,5 @@
 use crate::{
-    domain::{ListenerRecord, PortDetails, Scope},
+    core::{ListenerRecord, PortDetails, Scope},
     error::Result,
 };
 

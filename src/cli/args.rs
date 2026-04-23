@@ -2,7 +2,7 @@ use std::{ffi::OsString, str::FromStr};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::{domain::Scope, error::Result};
+use crate::{core::Scope, error::Result};
 
 #[derive(Debug, Parser)]
 #[command(
