@@ -11,6 +11,10 @@ use crate::{
     error::{PortxError, Result},
 };
 
+const PORT_WIDTH: usize = 6;
+const PROTOCOL_WIDTH: usize = 6;
+const SCOPE_WIDTH: usize = 7;
+const PID_WIDTH: usize = 8;
 const ADDRESS_WIDTH: usize = 30;
 const PROCESS_WIDTH: usize = 20;
 const WARNINGS_WIDTH: usize = 24;
@@ -23,31 +27,7 @@ pub fn print_list(records: &[ListenerRecord], scope: Option<ScopeArg>) {
 
     println!("{}", list_summary(records.len(), scope));
     println!();
-    println!(
-        "{:<8} {:<6} {:<7} {:<8} {:<30} {:<20} {:<24}",
-        "PORT", "PROTO", "SCOPE", "PID", "ADDRESS", "PROCESS", "WARNINGS"
-    );
-    for record in records {
-        let warnings = truncate(
-            &format_warnings(&warnings_for_listener(record)),
-            WARNINGS_WIDTH,
-        );
-        println!(
-            "{:<8} {:<6} {:<7} {:<8} {:<30} {:<20} {:<24}",
-            record.port,
-            record.protocol,
-            record.scope,
-            record
-                .pid
-                .map_or_else(|| "N/A".to_string(), |pid| pid.to_string()),
-            truncate(&record.bind_addr.to_string(), ADDRESS_WIDTH),
-            truncate(
-                record.process_name.as_deref().unwrap_or("N/A"),
-                PROCESS_WIDTH
-            ),
-            warnings
-        );
-    }
+    print_list_table(records);
 }
 
 pub fn print_find(records: &[ListenerRecord], process_name: &str, scope: Option<ScopeArg>) {
@@ -207,31 +187,82 @@ pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]
 }
 
 fn print_list_table(records: &[ListenerRecord]) {
-    println!(
-        "{:<8} {:<6} {:<7} {:<8} {:<30} {:<20} {:<24}",
-        "PORT", "PROTO", "SCOPE", "PID", "ADDRESS", "PROCESS", "WARNINGS"
-    );
+    println!("{}", render_list_header());
+    println!("{}", render_list_separator());
+
     for record in records {
-        let warnings = truncate(
-            &format_warnings(&warnings_for_listener(record)),
-            WARNINGS_WIDTH,
-        );
-        println!(
-            "{:<8} {:<6} {:<7} {:<8} {:<30} {:<20} {:<24}",
-            record.port,
-            record.protocol,
-            record.scope,
-            record
-                .pid
-                .map_or_else(|| "N/A".to_string(), |pid| pid.to_string()),
-            truncate(&record.bind_addr.to_string(), ADDRESS_WIDTH),
-            truncate(
-                record.process_name.as_deref().unwrap_or("N/A"),
-                PROCESS_WIDTH
-            ),
-            warnings
-        );
+        println!("{}", render_list_row(record));
     }
+}
+
+fn render_list_header() -> String {
+    render_table_row(&[
+        ("PORT", PORT_WIDTH, Alignment::Right),
+        ("PROTO", PROTOCOL_WIDTH, Alignment::Left),
+        ("SCOPE", SCOPE_WIDTH, Alignment::Left),
+        ("PID", PID_WIDTH, Alignment::Right),
+        ("ADDRESS", ADDRESS_WIDTH, Alignment::Left),
+        ("PROCESS", PROCESS_WIDTH, Alignment::Left),
+        ("WARNINGS", WARNINGS_WIDTH, Alignment::Left),
+    ])
+}
+
+fn render_list_separator() -> String {
+    render_table_row(&[
+        (&"-".repeat(PORT_WIDTH), PORT_WIDTH, Alignment::Left),
+        (&"-".repeat(PROTOCOL_WIDTH), PROTOCOL_WIDTH, Alignment::Left),
+        (&"-".repeat(SCOPE_WIDTH), SCOPE_WIDTH, Alignment::Left),
+        (&"-".repeat(PID_WIDTH), PID_WIDTH, Alignment::Left),
+        (&"-".repeat(ADDRESS_WIDTH), ADDRESS_WIDTH, Alignment::Left),
+        (&"-".repeat(PROCESS_WIDTH), PROCESS_WIDTH, Alignment::Left),
+        (&"-".repeat(WARNINGS_WIDTH), WARNINGS_WIDTH, Alignment::Left),
+    ])
+}
+
+fn render_list_row(record: &ListenerRecord) -> String {
+    let port = record.port.to_string();
+    let protocol = record.protocol.to_string();
+    let scope = record.scope.to_string();
+    let pid = record
+        .pid
+        .map_or_else(|| "N/A".to_string(), |pid| pid.to_string());
+    let address = record.bind_addr.to_string();
+    let process = record.process_name.as_deref().unwrap_or("N/A").to_string();
+    let warnings = format_warnings(&warnings_for_listener(record));
+
+    render_table_row(&[
+        (&port, PORT_WIDTH, Alignment::Right),
+        (&protocol, PROTOCOL_WIDTH, Alignment::Left),
+        (&scope, SCOPE_WIDTH, Alignment::Left),
+        (&pid, PID_WIDTH, Alignment::Right),
+        (&address, ADDRESS_WIDTH, Alignment::Left),
+        (&process, PROCESS_WIDTH, Alignment::Left),
+        (&warnings, WARNINGS_WIDTH, Alignment::Left),
+    ])
+}
+
+fn render_table_row(columns: &[(&str, usize, Alignment)]) -> String {
+    columns
+        .iter()
+        .map(|(value, width, alignment)| format_cell(value, *width, *alignment))
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn format_cell(value: &str, width: usize, alignment: Alignment) -> String {
+    let truncated = truncate(value, width);
+    let padding = width.saturating_sub(truncated.chars().count());
+
+    match alignment {
+        Alignment::Left => format!("{truncated}{:padding$}", "", padding = padding),
+        Alignment::Right => format!("{:padding$}{truncated}", "", padding = padding),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Alignment {
+    Left,
+    Right,
 }
 
 fn list_summary(count: usize, scope: Option<ScopeArg>) -> String {
@@ -305,15 +336,22 @@ fn local_timestamp_string() -> String {
 }
 
 fn truncate(value: &str, width: usize) -> String {
-    let mut chars = value.chars();
-    let collected = chars.by_ref().take(width).collect::<String>();
-    if chars.next().is_some() && width > 1 {
-        let mut truncated = collected.chars().take(width - 1).collect::<String>();
-        truncated.push('…');
-        truncated
-    } else {
-        collected
+    let count = value.chars().count();
+    if count <= width {
+        return value.to_string();
     }
+
+    if width == 0 {
+        return String::new();
+    }
+
+    if width <= 3 {
+        return ".".repeat(width);
+    }
+
+    let mut truncated = value.chars().take(width - 3).collect::<String>();
+    truncated.push_str("...");
+    truncated
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -353,7 +391,7 @@ mod tests {
 
     #[test]
     fn truncates_long_values_with_ellipsis() {
-        assert_eq!(truncate("abcdefghijkl", 8), "abcdefg…");
+        assert_eq!(truncate("abcdefghijkl", 8), "abcde...");
         assert_eq!(truncate("short", 8), "short");
     }
 
@@ -387,5 +425,23 @@ mod tests {
             "postgres (PID 1148)"
         );
         assert_eq!(process_summary("unknown", None), "unknown");
+    }
+
+    #[test]
+    fn renders_header_and_rows_with_matching_width() {
+        let record = ListenerRecord {
+            port: 3000,
+            protocol: crate::core::Protocol::Tcp,
+            bind_addr: "127.0.0.1".parse().unwrap(),
+            scope: crate::core::Scope::Local,
+            pid: Some(4242),
+            process_name: Some("node".to_string()),
+            command: None,
+        };
+
+        assert_eq!(
+            render_list_header().chars().count(),
+            render_list_row(&record).chars().count()
+        );
     }
 }

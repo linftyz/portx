@@ -66,6 +66,7 @@ struct App {
     details: Vec<PortDetails>,
     selected: usize,
     detail_focus: bool,
+    show_help: bool,
     kill_prompt: bool,
     status: Option<StatusMessage>,
     last_refresh: Instant,
@@ -78,6 +79,7 @@ impl Default for App {
             details: Vec::new(),
             selected: 0,
             detail_focus: false,
+            show_help: false,
             kill_prompt: false,
             status: None,
             last_refresh: Instant::now(),
@@ -125,6 +127,10 @@ impl App {
             return self.handle_kill_prompt(key, service);
         }
 
+        if self.show_help {
+            return Ok(self.handle_help_key(key));
+        }
+
         match key.code {
             KeyCode::Char('q') => return Ok(true),
             KeyCode::Esc => self.detail_focus = false,
@@ -132,10 +138,22 @@ impl App {
             KeyCode::Up => self.previous(service)?,
             KeyCode::Enter => self.detail_focus = !self.detail_focus,
             KeyCode::Char('k') => self.start_kill_prompt(),
+            KeyCode::Char('?') | KeyCode::Char('h') => self.show_help = true,
             _ => {}
         }
 
         Ok(false)
+    }
+
+    fn handle_help_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Char('q') => true,
+            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('h') => {
+                self.show_help = false;
+                false
+            }
+            _ => false,
+        }
     }
 
     fn handle_kill_prompt(&mut self, key: KeyEvent, service: &PortService) -> Result<bool> {
@@ -271,7 +289,7 @@ fn render(frame: &mut Frame, app: &App) {
     let outer = Layout::vertical([
         Constraint::Length(3),
         Constraint::Min(10),
-        Constraint::Length(2),
+        Constraint::Length(4),
     ])
     .split(frame.area());
 
@@ -290,6 +308,8 @@ fn render(frame: &mut Frame, app: &App) {
 
     if app.kill_prompt {
         render_kill_prompt(frame, app);
+    } else if app.show_help {
+        render_help(frame);
     }
 }
 
@@ -415,7 +435,7 @@ fn render_details(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
 
 fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
     let status = app.status.clone().unwrap_or(StatusMessage {
-        text: "Arrows: move  Enter: focus details  k: kill  q: quit".to_string(),
+        text: "Ready. Press ? for help.".to_string(),
         level: StatusLevel::Info,
     });
 
@@ -425,9 +445,48 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
         StatusLevel::Error => Style::default().fg(Color::Red),
     };
 
-    let footer = Paragraph::new(status.text)
-        .style(style)
-        .block(Block::default().borders(Borders::ALL));
+    let footer = Paragraph::new(vec![
+        Line::from(Span::styled(status.text, style)),
+        Line::from(vec![
+            Span::styled("Shortcuts: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "Up/Down",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" move  ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                "Enter",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" focus  ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                "k",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" kill  ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                "?/h",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" help  ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                "q",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" quit", Style::default().fg(Color::Gray)),
+        ]),
+    ])
+    .block(Block::default().borders(Borders::ALL));
     frame.render_widget(footer, area);
 }
 
@@ -467,6 +526,30 @@ fn render_kill_prompt(frame: &mut Frame, app: &App) {
             .borders(Borders::ALL)
             .title("Kill confirmation"),
     )
+    .wrap(Wrap { trim: true });
+
+    frame.render_widget(text, area);
+}
+
+fn render_help(frame: &mut Frame) {
+    let area = centered_rect(68, 46, frame.area());
+    frame.render_widget(Clear, area);
+
+    let text = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "Keyboard shortcuts",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("Up / Down  Move the selection in the listener list"),
+        Line::from("Enter      Toggle detail focus mode"),
+        Line::from("Esc        Leave detail focus or close this help"),
+        Line::from("k          Open the kill confirmation dialog"),
+        Line::from("y / n      Confirm or cancel the kill dialog"),
+        Line::from("? / h      Open or close this help panel"),
+        Line::from("q          Quit the TUI"),
+    ])
+    .block(Block::default().borders(Borders::ALL).title("Help"))
     .wrap(Wrap { trim: true });
 
     frame.render_widget(text, area);
