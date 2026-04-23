@@ -1,12 +1,18 @@
 use std::{
     io::{self, IsTerminal, Write},
-    time::{SystemTime, UNIX_EPOCH},
+    time::SystemTime,
 };
+
+use chrono::{DateTime, Local};
 
 use crate::{
     core::{KillPlan, KillResult, ListenerRecord, PortDetails, PortWarning, warnings_for_listener},
     error::{PortxError, Result},
 };
+
+const ADDRESS_WIDTH: usize = 30;
+const PROCESS_WIDTH: usize = 20;
+const WARNINGS_WIDTH: usize = 24;
 
 pub fn print_list(records: &[ListenerRecord]) {
     if records.is_empty() {
@@ -15,21 +21,27 @@ pub fn print_list(records: &[ListenerRecord]) {
     }
 
     println!(
-        "{:<8} {:<6} {:<7} {:<8} {:<24} {:<18} WARNINGS",
-        "PORT", "PROTO", "SCOPE", "PID", "ADDRESS", "PROCESS"
+        "{:<8} {:<6} {:<7} {:<8} {:<30} {:<20} {:<24}",
+        "PORT", "PROTO", "SCOPE", "PID", "ADDRESS", "PROCESS", "WARNINGS"
     );
     for record in records {
-        let warnings = format_warnings(&warnings_for_listener(record));
+        let warnings = truncate(
+            &format_warnings(&warnings_for_listener(record)),
+            WARNINGS_WIDTH,
+        );
         println!(
-            "{:<8} {:<6} {:<7} {:<8} {:<24} {:<18} {}",
+            "{:<8} {:<6} {:<7} {:<8} {:<30} {:<20} {:<24}",
             record.port,
             record.protocol,
             record.scope,
             record
                 .pid
                 .map_or_else(|| "N/A".to_string(), |pid| pid.to_string()),
-            record.bind_addr,
-            record.process_name.as_deref().unwrap_or("N/A"),
+            truncate(&record.bind_addr.to_string(), ADDRESS_WIDTH),
+            truncate(
+                record.process_name.as_deref().unwrap_or("N/A"),
+                PROCESS_WIDTH
+            ),
             warnings
         );
     }
@@ -87,7 +99,7 @@ pub fn print_details(details: &[PortDetails]) {
             "Memory: {}",
             detail
                 .memory_bytes
-                .map_or_else(|| "N/A".to_string(), |memory| memory.to_string())
+                .map_or_else(|| "N/A".to_string(), format_bytes)
         );
         println!(
             "Threads: {}",
@@ -99,7 +111,7 @@ pub fn print_details(details: &[PortDetails]) {
             "Uptime: {}",
             detail
                 .uptime_seconds
-                .map_or_else(|| "N/A".to_string(), |uptime| format!("{uptime}s"))
+                .map_or_else(|| "N/A".to_string(), format_duration)
         );
         println!(
             "Connections: {}",
@@ -168,7 +180,7 @@ pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]
         "PID filter: {}",
         pid.map_or_else(|| "-".to_string(), |pid| pid.to_string())
     );
-    println!("Updated: {}", unix_timestamp_seconds());
+    println!("Updated: {}", local_timestamp_string());
     println!("Press Ctrl-C to stop.");
     println!();
 
@@ -201,9 +213,76 @@ fn clear_screen() {
     print!("\x1B[2J\x1B[H");
 }
 
-fn unix_timestamp_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or_default()
+fn local_timestamp_string() -> String {
+    let now = SystemTime::now();
+    let datetime: DateTime<Local> = now.into();
+    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+fn truncate(value: &str, width: usize) -> String {
+    let mut chars = value.chars();
+    let collected = chars.by_ref().take(width).collect::<String>();
+    if chars.next().is_some() && width > 1 {
+        let mut truncated = collected.chars().take(width - 1).collect::<String>();
+        truncated.push('…');
+        truncated
+    } else {
+        collected
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+
+    let mut value = bytes as f64;
+    let mut unit = 0usize;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+
+    if unit == 0 {
+        format!("{bytes} {}", UNITS[unit])
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+fn format_duration(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let seconds = seconds % 60;
+
+    if hours > 0 {
+        format!("{hours}h {minutes}m {seconds}s")
+    } else if minutes > 0 {
+        format!("{minutes}m {seconds}s")
+    } else {
+        format!("{seconds}s")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncates_long_values_with_ellipsis() {
+        assert_eq!(truncate("abcdefghijkl", 8), "abcdefg…");
+        assert_eq!(truncate("short", 8), "short");
+    }
+
+    #[test]
+    fn formats_bytes_readably() {
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1536), "1.5 KiB");
+        assert_eq!(format_bytes(5 * 1024 * 1024), "5.0 MiB");
+    }
+
+    #[test]
+    fn formats_duration_readably() {
+        assert_eq!(format_duration(42), "42s");
+        assert_eq!(format_duration(125), "2m 5s");
+        assert_eq!(format_duration(3725), "1h 2m 5s");
+    }
 }
