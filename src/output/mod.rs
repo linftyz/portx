@@ -3,7 +3,7 @@ mod text;
 
 use crate::{
     cli::ScopeArg,
-    core::{ListenerRecord, PortDetails},
+    core::{KillPlan, KillResult, ListenerRecord, PortDetails},
     error::Result,
 };
 
@@ -44,8 +44,12 @@ pub fn print_find(
     Ok(())
 }
 
-pub fn print_kill_placeholder(port: u16, pid: Option<u32>, force: bool) {
-    text::print_kill_placeholder(port, pid, force);
+pub fn confirm_kill(plan: &KillPlan, skip_confirmation: bool) -> Result<()> {
+    text::confirm_kill(plan, skip_confirmation)
+}
+
+pub fn print_kill_result(result: &KillResult) {
+    text::print_kill_result(result);
 }
 
 pub fn print_watch_placeholder(port: u16, pid: Option<u32>) {

@@ -1,6 +1,6 @@
 use crate::{
     cli::{Cli, Command},
-    core::PortService,
+    core::{PortService, build_kill_plan, execute_kill},
     error::Result,
     output,
 };
@@ -22,8 +22,10 @@ pub fn execute(cli: Cli) -> Result<()> {
             output::print_find(&ports, &args.process_name, args.scope, args.json)?;
         }
         Command::Kill(args) => {
-            service.kill(args.port, args.pid, args.force, args.yes)?;
-            output::print_kill_placeholder(args.port, args.pid, args.force);
+            let plan = build_kill_plan(&service, args.port, args.pid, args.force)?;
+            output::confirm_kill(&plan, args.yes)?;
+            let result = execute_kill(&service, plan)?;
+            output::print_kill_result(&result);
         }
         Command::Watch(args) => {
             service.watch(args.port, args.pid)?;

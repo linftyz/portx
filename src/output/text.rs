@@ -1,4 +1,9 @@
-use crate::core::{ListenerRecord, PortDetails, PortWarning, warnings_for_listener};
+use std::io::{self, IsTerminal, Write};
+
+use crate::{
+    core::{KillPlan, KillResult, ListenerRecord, PortDetails, PortWarning, warnings_for_listener},
+    error::{PortxError, Result},
+};
 
 pub fn print_list(records: &[ListenerRecord]) {
     if records.is_empty() {
@@ -103,12 +108,46 @@ pub fn print_details(details: &[PortDetails]) {
     }
 }
 
-pub fn print_kill_placeholder(port: u16, pid: Option<u32>, force: bool) {
-    let mode = if force { "force" } else { "graceful" };
-    match pid {
-        Some(pid) => println!("Kill placeholder: {mode} termination for PID {pid} on port {port}."),
-        None => println!("Kill placeholder: {mode} termination for port {port}."),
+pub fn confirm_kill(plan: &KillPlan, skip_confirmation: bool) -> Result<()> {
+    if skip_confirmation {
+        return Ok(());
     }
+
+    if !is_tty() {
+        return Err(PortxError::ConfirmationRequired);
+    }
+
+    let mode = if plan.force { "SIGKILL" } else { "SIGTERM" };
+    println!("Kill PID {} on port {} with {}?", plan.pid, plan.port, mode);
+    println!("Process: {}", plan.process_name.as_deref().unwrap_or("N/A"));
+    println!("Command: {}", plan.command.as_deref().unwrap_or("N/A"));
+    print!("Continue? [y/N]: ");
+    io::stdout()
+        .flush()
+        .map_err(|_| PortxError::ConfirmationRequired)?;
+
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .map_err(|_| PortxError::ConfirmationRequired)?;
+
+    let answer = input.trim().to_ascii_lowercase();
+    if answer == "y" || answer == "yes" {
+        Ok(())
+    } else {
+        Err(PortxError::ConfirmationRequired)
+    }
+}
+
+pub fn print_kill_result(result: &KillResult) {
+    let mode = if result.force { "SIGKILL" } else { "SIGTERM" };
+    println!(
+        "Sent {} to PID {} on port {} ({})",
+        mode,
+        result.pid,
+        result.port,
+        result.process_name.as_deref().unwrap_or("N/A")
+    );
 }
 
 pub fn print_watch_placeholder(port: u16, pid: Option<u32>) {
@@ -128,4 +167,8 @@ fn format_warnings(warnings: &[PortWarning]) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     }
+}
+
+fn is_tty() -> bool {
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }

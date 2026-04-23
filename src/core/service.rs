@@ -1,11 +1,13 @@
 use crate::{
-    core::{ListenerRecord, PortDetails, Scope, warnings_for_listener},
-    error::Result,
+    core::{KillPlan, KillResult, ListenerRecord, PortDetails, Scope, warnings_for_listener},
+    error::{PortxError, Result},
     platform::{
         process::{ProcessInfo, ProcessSnapshot},
         sockets,
     },
 };
+
+use sysinfo::{Pid, Signal, System};
 
 #[derive(Debug, Default)]
 pub struct PortService;
@@ -47,12 +49,49 @@ impl PortService {
     }
 
     pub fn kill(&self, _port: u16, _pid: Option<u32>, _force: bool, _yes: bool) -> Result<()> {
-        Ok(())
+        let processes = ProcessSnapshot::capture();
+        let records = collect_listener_records(None, &processes)?;
+        let plan = resolve_kill_plan(records, _port, _pid)?;
+        let signal = if _force { Signal::Kill } else { Signal::Term };
+
+        let system = System::new_all();
+        let process = system
+            .process(Pid::from_u32(plan.pid))
+            .ok_or(PortxError::KillFailed { pid: plan.pid })?;
+
+        match process.kill_with(signal) {
+            Some(true) => Ok(()),
+            Some(false) => Err(PortxError::KillFailed { pid: plan.pid }),
+            None => Err(PortxError::UnsupportedSignal),
+        }
     }
 
     pub fn watch(&self, _port: u16, _pid: Option<u32>) -> Result<()> {
         Ok(())
     }
+}
+
+pub fn build_kill_plan(
+    _service: &PortService,
+    port: u16,
+    pid: Option<u32>,
+    force: bool,
+) -> Result<KillPlan> {
+    let processes = ProcessSnapshot::capture();
+    let records = collect_listener_records(None, &processes)?;
+    let mut plan = resolve_kill_plan(records, port, pid)?;
+    plan.force = force;
+    Ok(plan)
+}
+
+pub fn execute_kill(service: &PortService, plan: KillPlan) -> Result<KillResult> {
+    service.kill(plan.port, Some(plan.pid), plan.force, true)?;
+    Ok(KillResult {
+        port: plan.port,
+        pid: plan.pid,
+        process_name: plan.process_name,
+        force: plan.force,
+    })
 }
 
 fn collect_listener_records(
@@ -141,6 +180,60 @@ fn matches_process_name(record: &ListenerRecord, needle: &str) -> bool {
         .as_ref()
         .map(|name| name.to_lowercase().contains(&needle))
         .unwrap_or(false)
+}
+
+fn resolve_kill_plan(
+    records: Vec<ListenerRecord>,
+    port: u16,
+    pid: Option<u32>,
+) -> Result<KillPlan> {
+    let matches = records
+        .into_iter()
+        .filter(|record| record.port == port)
+        .collect::<Vec<_>>();
+
+    if matches.is_empty() {
+        return Err(PortxError::PortNotFound { port });
+    }
+
+    if let Some(pid) = pid {
+        let record = matches
+            .into_iter()
+            .find(|record| record.pid == Some(pid))
+            .ok_or(PortxError::PidNotOnPort { port, pid })?;
+
+        return build_plan_from_record(record, port);
+    }
+
+    let unique_pids = matches
+        .iter()
+        .filter_map(|record| record.pid)
+        .collect::<std::collections::BTreeSet<_>>();
+
+    match unique_pids.len() {
+        0 => Err(PortxError::NoPidForPort { port }),
+        1 => {
+            let pid = unique_pids.into_iter().next().unwrap();
+            let record = matches
+                .into_iter()
+                .find(|record| record.pid == Some(pid))
+                .expect("unique pid should exist in listener records");
+
+            build_plan_from_record(record, port)
+        }
+        _ => Err(PortxError::MultiplePidsForPort { port }),
+    }
+}
+
+fn build_plan_from_record(record: ListenerRecord, port: u16) -> Result<KillPlan> {
+    let pid = record.pid.ok_or(PortxError::NoPidForPort { port })?;
+    Ok(KillPlan {
+        port,
+        pid,
+        process_name: record.process_name,
+        command: record.command,
+        force: false,
+    })
 }
 
 fn sort_listener_records(records: &mut [ListenerRecord]) {
@@ -274,6 +367,90 @@ mod tests {
         assert!(matches_process_name(&record, "od"));
         assert!(!matches_process_name(&record, "python"));
         assert!(!matches_process_name(&record, ""));
+    }
+
+    #[test]
+    fn resolves_single_pid_kill_plan() {
+        let plan = resolve_kill_plan(
+            vec![record(3000, Ipv4Addr::LOCALHOST, Protocol::Tcp, Some(10))],
+            3000,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(plan.pid, 10);
+        assert_eq!(plan.port, 3000);
+        assert!(!plan.force);
+    }
+
+    #[test]
+    fn rejects_multi_pid_kill_without_explicit_pid() {
+        let error = resolve_kill_plan(
+            vec![
+                record(3000, Ipv4Addr::LOCALHOST, Protocol::Tcp, Some(10)),
+                record(3000, Ipv4Addr::LOCALHOST, Protocol::Tcp, Some(20)),
+            ],
+            3000,
+            None,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            PortxError::MultiplePidsForPort { port: 3000 }
+        ));
+    }
+
+    #[test]
+    fn resolves_explicit_pid_kill_plan() {
+        let plan = resolve_kill_plan(
+            vec![
+                record(3000, Ipv4Addr::LOCALHOST, Protocol::Tcp, Some(10)),
+                record(3000, Ipv4Addr::LOCALHOST, Protocol::Tcp, Some(20)),
+            ],
+            3000,
+            Some(20),
+        )
+        .unwrap();
+
+        assert_eq!(plan.pid, 20);
+    }
+
+    #[test]
+    fn rejects_missing_port_for_kill_plan() {
+        let error = resolve_kill_plan(Vec::new(), 3000, None).unwrap_err();
+
+        assert!(matches!(error, PortxError::PortNotFound { port: 3000 }));
+    }
+
+    #[test]
+    fn rejects_pid_not_on_port_for_kill_plan() {
+        let error = resolve_kill_plan(
+            vec![record(3000, Ipv4Addr::LOCALHOST, Protocol::Tcp, Some(10))],
+            3000,
+            Some(20),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            PortxError::PidNotOnPort {
+                port: 3000,
+                pid: 20
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_record_without_pid_for_kill_plan() {
+        let error = resolve_kill_plan(
+            vec![record(3000, Ipv4Addr::LOCALHOST, Protocol::Tcp, None)],
+            3000,
+            None,
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, PortxError::NoPidForPort { port: 3000 }));
     }
 
     fn record(

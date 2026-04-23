@@ -49,6 +49,23 @@ pub struct PortDetails {
     pub warnings: Vec<PortWarning>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KillPlan {
+    pub port: u16,
+    pub pid: u32,
+    pub process_name: Option<String>,
+    pub command: Option<String>,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KillResult {
+    pub port: u16,
+    pub pid: u32,
+    pub process_name: Option<String>,
+    pub force: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PortWarning {
