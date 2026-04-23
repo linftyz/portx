@@ -12,7 +12,7 @@ pub fn print_list(records: &[ListenerRecord], scope: Option<ScopeArg>, json: boo
         return self::json::print_list(records, scope);
     }
 
-    text::print_list(records);
+    text::print_list(records, scope);
     Ok(())
 }
 
@@ -40,7 +40,7 @@ pub fn print_find(
         return self::json::print_find(records, process_name, scope);
     }
 
-    text::print_list(records);
+    text::print_find(records, process_name, scope);
     Ok(())
 }
 
