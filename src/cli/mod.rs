@@ -1,3 +1,5 @@
 mod args;
 
-pub use args::{Cli, Command, FindArgs, InfoArgs, KillArgs, ListArgs, ScopeArg, WatchArgs};
+pub use args::{
+    Cli, Command, FindArgs, InfoArgs, KillArgs, ListArgs, ScopeArg, TuiArgs, WatchArgs,
+};

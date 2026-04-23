@@ -4,7 +4,7 @@ use crate::{
     cli::{Cli, Command},
     core::{PortService, build_kill_plan, execute_kill},
     error::Result,
-    output,
+    output, tui,
 };
 
 pub fn execute(cli: Cli) -> Result<()> {
@@ -34,6 +34,9 @@ pub fn execute(cli: Cli) -> Result<()> {
             output::print_watch_snapshot(args.port, args.pid, &details)?;
             thread::sleep(Duration::from_secs(1));
         },
+        Command::Tui(_) => {
+            tui::run(&service)?;
+        }
     }
 
     Ok(())

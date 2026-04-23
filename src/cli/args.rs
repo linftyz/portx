@@ -38,6 +38,8 @@ pub enum Command {
     Kill(KillArgs),
     /// Watch a port and refresh usage metrics.
     Watch(WatchArgs),
+    /// Launch the interactive TUI.
+    Tui(TuiArgs),
 }
 
 impl Default for Command {
@@ -103,6 +105,9 @@ pub struct WatchArgs {
     #[arg(long)]
     pub pid: Option<u32>,
 }
+
+#[derive(Debug, Clone, Default, Args)]
+pub struct TuiArgs {}
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum ScopeArg {

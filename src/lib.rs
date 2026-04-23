@@ -4,6 +4,7 @@ pub mod core;
 pub mod error;
 pub mod output;
 pub mod platform;
+pub mod tui;
 
 use std::ffi::OsString;
 

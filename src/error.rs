@@ -9,6 +9,8 @@ pub enum PortxError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
     Socket(#[from] netstat2::error::Error),
     #[error("port {port} has no killable PID")]
     NoPidForPort { port: u16 },
@@ -22,6 +24,8 @@ pub enum PortxError {
     ConfirmationRequired,
     #[error("kill signal is not supported on this platform")]
     UnsupportedSignal,
+    #[error("the TUI requires an interactive terminal")]
+    TuiRequiresTerminal,
     #[error("failed to signal PID {pid}")]
     KillFailed { pid: u32 },
     #[error("portx data collection is not implemented yet for this milestone")]
@@ -33,6 +37,7 @@ impl PortxError {
         match self {
             Self::Cli(error) => error.exit_code().try_into().unwrap_or(2),
             Self::Json(_)
+            | Self::Io(_)
             | Self::Socket(_)
             | Self::NoPidForPort { .. }
             | Self::PortNotFound { .. }
@@ -40,6 +45,7 @@ impl PortxError {
             | Self::PidNotOnPort { .. }
             | Self::ConfirmationRequired
             | Self::UnsupportedSignal
+            | Self::TuiRequiresTerminal
             | Self::KillFailed { .. }
             | Self::NotImplemented => 1,
         }
