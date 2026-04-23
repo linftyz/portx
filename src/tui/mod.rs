@@ -15,7 +15,10 @@ use ratatui::{
 };
 
 use crate::{
-    core::{ListenerRecord, PortDetails, PortService, build_kill_plan, execute_kill},
+    core::{
+        ListenerRecord, PortDetails, PortService, Scope, build_kill_plan, execute_kill,
+        warnings_for_listener,
+    },
     error::{PortxError, Result},
 };
 
@@ -287,7 +290,7 @@ impl From<&ListenerRecord> for ListenerKey {
 
 fn render(frame: &mut Frame, app: &App) {
     let outer = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(4),
         Constraint::Min(10),
         Constraint::Length(4),
     ])
@@ -316,14 +319,14 @@ fn render(frame: &mut Frame, app: &App) {
 fn render_header(frame: &mut Frame, area: Rect, app: &App) {
     let selected = app
         .selected_listener()
-        .map(|record| {
-            format!(
-                "{} ({})",
-                record.port,
-                record.process_name.as_deref().unwrap_or("N/A")
-            )
-        })
-        .unwrap_or_else(|| "-".to_string());
+        .map(selected_summary)
+        .unwrap_or_else(|| "No listener selected".to_string());
+    let counts = scope_counts(&app.records);
+    let mode = if app.detail_focus {
+        "Detail focus"
+    } else {
+        "Split view"
+    };
 
     let header = Paragraph::new(vec![
         Line::from(vec![
@@ -336,22 +339,31 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
             Span::raw("  "),
             Span::styled(
                 format!("Listeners: {}", app.records.len()),
-                Style::default().fg(Color::Gray),
+                Style::default().fg(Color::White),
             ),
             Span::raw("  "),
             Span::styled(
-                format!("Selected: {selected}"),
+                format!(
+                    "Public: {}  Lan: {}  Local: {}",
+                    counts.public, counts.lan, counts.local
+                ),
                 Style::default().fg(Color::Gray),
             ),
         ]),
-        Line::from(Span::styled(
-            if app.detail_focus {
-                "Detail focus mode"
-            } else {
-                "List + detail split view"
-            },
-            Style::default().fg(Color::DarkGray),
-        )),
+        Line::from(vec![
+            Span::styled("Selected: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(selected, Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("Mode: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(mode, Style::default().fg(Color::Gray)),
+            Span::raw("  "),
+            Span::styled("Refresh: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{} ago", format_elapsed(app.last_refresh.elapsed())),
+                Style::default().fg(Color::Gray),
+            ),
+        ]),
     ])
     .block(Block::default().borders(Borders::ALL).title("Overview"));
 
@@ -359,7 +371,22 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_list(frame: &mut Frame, area: Rect, app: &App) {
-    let header = Row::new(["Port", "Scope", "Proto", "Process", "Bind", "Risk"])
+    if app.records.is_empty() {
+        let empty = Paragraph::new(vec![
+            Line::from(Span::styled(
+                "No listening ports found.",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("Start a service or wait for the next refresh."),
+        ])
+        .block(Block::default().borders(Borders::ALL).title("Listeners"));
+
+        frame.render_widget(empty, area);
+        return;
+    }
+
+    let header = Row::new(["Port", "Scope", "Proto", "PID", "Process", "Bind", "Risk"])
         .style(
             Style::default()
                 .fg(Color::Yellow)
@@ -368,23 +395,21 @@ fn render_list(frame: &mut Frame, area: Rect, app: &App) {
         .bottom_margin(1);
 
     let rows = app.records.iter().map(|record| {
-        let risk = if record.scope == crate::core::Scope::Public {
-            if record.bind_addr.is_unspecified() {
-                "WILDCARD".to_string()
-            } else {
-                "PUBLIC".to_string()
-            }
-        } else {
-            "-".to_string()
-        };
+        let warnings = warnings_for_listener(record);
+        let risk = warning_badge(&warnings);
 
         Row::new(vec![
             Cell::from(record.port.to_string()),
-            Cell::from(record.scope.to_string()),
+            Cell::from(scope_span(record.scope)),
             Cell::from(record.protocol.to_string()),
+            Cell::from(
+                record
+                    .pid
+                    .map_or_else(|| "-".to_string(), |pid| pid.to_string()),
+            ),
             Cell::from(record.process_name.as_deref().unwrap_or("N/A").to_string()),
             Cell::from(record.bind_addr.to_string()),
-            Cell::from(risk),
+            Cell::from(Span::styled(risk.label, risk.style)),
         ])
     });
 
@@ -394,6 +419,7 @@ fn render_list(frame: &mut Frame, area: Rect, app: &App) {
             Constraint::Length(6),
             Constraint::Length(8),
             Constraint::Length(6),
+            Constraint::Length(7),
             Constraint::Length(18),
             Constraint::Min(12),
             Constraint::Length(10),
@@ -401,8 +427,17 @@ fn render_list(frame: &mut Frame, area: Rect, app: &App) {
     )
     .header(header)
     .column_spacing(1)
-    .block(Block::default().borders(Borders::ALL).title("Listeners"))
-    .row_highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(format!("Listeners ({})", app.records.len())),
+    )
+    .row_highlight_style(
+        Style::default()
+            .bg(Color::DarkGray)
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    )
     .highlight_symbol(">> ");
 
     let mut state = TableState::default().with_selected(if app.records.is_empty() {
@@ -427,7 +462,16 @@ fn render_details(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     };
 
     let paragraph = Paragraph::new(body)
-        .block(Block::default().borders(Borders::ALL).title(title))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(if focused {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                })
+                .title(title),
+        )
         .wrap(Wrap { trim: true });
 
     frame.render_widget(paragraph, area);
@@ -532,7 +576,7 @@ fn render_kill_prompt(frame: &mut Frame, app: &App) {
 }
 
 fn render_help(frame: &mut Frame) {
-    let area = centered_rect(68, 46, frame.area());
+    let area = centered_rect(72, 56, frame.area());
     frame.render_widget(Clear, area);
 
     let text = Paragraph::new(vec![
@@ -548,6 +592,21 @@ fn render_help(frame: &mut Frame) {
         Line::from("y / n      Confirm or cancel the kill dialog"),
         Line::from("? / h      Open or close this help panel"),
         Line::from("q          Quit the TUI"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Scope legend",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from("PUBLIC     Exposed to external networks"),
+        Line::from("LAN        Reachable on local network ranges"),
+        Line::from("LOCAL      Bound to loopback only"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Notes",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from("The screen refreshes once per second."),
+        Line::from("The selected row drives the details pane on the right."),
     ])
     .block(Block::default().borders(Borders::ALL).title("Help"))
     .wrap(Wrap { trim: true });
@@ -579,6 +638,8 @@ fn detail_lines(details: &[PortDetails]) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
 
     for (index, detail) in details.iter().enumerate() {
+        let warnings = warning_badge(&detail.warnings);
+
         if index > 0 {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
@@ -590,9 +651,9 @@ fn detail_lines(details: &[PortDetails]) -> Vec<Line<'static>> {
 
         lines.push(Line::from(Span::styled(
             format!(
-                "[Listener {}] {} / {} / {}",
+                "[Listener {}] Port {} / {} / {}",
                 index + 1,
-                detail.listener.bind_addr,
+                detail.listener.port,
                 detail.listener.protocol,
                 detail.listener.scope
             ),
@@ -600,70 +661,214 @@ fn detail_lines(details: &[PortDetails]) -> Vec<Line<'static>> {
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )));
-        lines.push(Line::from(format!(
-            "Risk: {}",
-            if detail.warnings.is_empty() {
-                "-".to_string()
-            } else {
-                detail
-                    .warnings
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            }
-        )));
-        lines.push(Line::from(format!(
-            "Process: {}",
-            detail.listener.process_name.as_deref().unwrap_or("N/A")
-        )));
-        lines.push(Line::from(format!(
-            "PID: {}",
+        lines.push(Line::from(""));
+        lines.push(section_label("Network"));
+        lines.push(label_value_line(
+            "Bind",
+            format!("{}", detail.listener.bind_addr),
+        ));
+        lines.push(label_value_line(
+            "Scope",
+            format!("{}", detail.listener.scope),
+        ));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "Risk",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(warnings.label.to_string(), warnings.style),
+        ]));
+        lines.push(label_value_line(
+            "Connections",
+            detail
+                .connection_count
+                .map_or_else(|| "N/A".to_string(), |connections| connections.to_string()),
+        ));
+        lines.push(Line::from(""));
+        lines.push(section_label("Process"));
+        lines.push(label_value_line(
+            "Name",
+            detail
+                .listener
+                .process_name
+                .as_deref()
+                .unwrap_or("N/A")
+                .to_string(),
+        ));
+        lines.push(label_value_line(
+            "PID",
             detail
                 .listener
                 .pid
-                .map_or_else(|| "N/A".to_string(), |pid| pid.to_string())
-        )));
-        lines.push(Line::from(format!(
-            "Command: {}",
-            detail.listener.command.as_deref().unwrap_or("N/A")
-        )));
-        lines.push(Line::from(format!(
-            "CWD: {}",
+                .map_or_else(|| "N/A".to_string(), |pid| pid.to_string()),
+        ));
+        lines.push(label_value_line(
+            "User",
+            detail.user.as_deref().unwrap_or("N/A").to_string(),
+        ));
+        lines.push(label_value_line(
+            "Command",
+            detail
+                .listener
+                .command
+                .as_deref()
+                .unwrap_or("N/A")
+                .to_string(),
+        ));
+        lines.push(label_value_line(
+            "CWD",
             detail
                 .cwd
                 .as_ref()
-                .map_or_else(|| "N/A".to_string(), |cwd| cwd.display().to_string())
-        )));
-        lines.push(Line::from(format!(
-            "User: {}",
-            detail.user.as_deref().unwrap_or("N/A")
-        )));
+                .map_or_else(|| "N/A".to_string(), |cwd| cwd.display().to_string()),
+        ));
         lines.push(Line::from(""));
-        lines.push(Line::from(format!(
-            "CPU: {}   Memory: {}   Threads: {}",
+        lines.push(section_label("Resources"));
+        lines.push(label_value_line(
+            "CPU",
             detail
                 .cpu_percent
                 .map_or_else(|| "N/A".to_string(), |cpu| format!("{cpu:.1}%")),
+        ));
+        lines.push(label_value_line(
+            "Memory",
             detail
                 .memory_bytes
                 .map_or_else(|| "N/A".to_string(), format_bytes),
+        ));
+        lines.push(label_value_line(
+            "Threads",
             detail
                 .thread_count
-                .map_or_else(|| "N/A".to_string(), |threads| threads.to_string())
-        )));
-        lines.push(Line::from(format!(
-            "Uptime: {}   Connections: {}",
+                .map_or_else(|| "N/A".to_string(), |threads| threads.to_string()),
+        ));
+        lines.push(label_value_line(
+            "Uptime",
             detail
                 .uptime_seconds
                 .map_or_else(|| "N/A".to_string(), format_duration),
-            detail
-                .connection_count
-                .map_or_else(|| "N/A".to_string(), |connections| connections.to_string())
-        )));
+        ));
     }
 
     lines
+}
+
+fn selected_summary(record: &ListenerRecord) -> String {
+    let warnings = warnings_for_listener(record);
+    let risk = warning_badge(&warnings).label;
+
+    format!(
+        "{} {} {} {} [{}]",
+        record.port,
+        record.process_name.as_deref().unwrap_or("N/A"),
+        record.bind_addr,
+        record.scope,
+        risk
+    )
+}
+
+fn label_value_line(label: &str, value: String) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            label.to_string(),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::styled(value, Style::default().fg(Color::White)),
+    ])
+}
+
+fn section_label(title: &str) -> Line<'static> {
+    Line::from(Span::styled(
+        title.to_string(),
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    ))
+}
+
+fn scope_span(scope: Scope) -> Span<'static> {
+    let (color, label) = match scope {
+        Scope::Public => (Color::Red, "PUBLIC"),
+        Scope::Lan => (Color::Yellow, "LAN"),
+        Scope::Local => (Color::Green, "LOCAL"),
+    };
+
+    Span::styled(
+        label.to_string(),
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    )
+}
+
+fn format_elapsed(duration: Duration) -> String {
+    let seconds = duration.as_secs();
+
+    if seconds == 0 {
+        "just now".to_string()
+    } else {
+        format!("{seconds}s")
+    }
+}
+
+struct ScopeCounts {
+    public: usize,
+    lan: usize,
+    local: usize,
+}
+
+fn scope_counts(records: &[ListenerRecord]) -> ScopeCounts {
+    let mut counts = ScopeCounts {
+        public: 0,
+        lan: 0,
+        local: 0,
+    };
+
+    for record in records {
+        match record.scope {
+            Scope::Public => counts.public += 1,
+            Scope::Lan => counts.lan += 1,
+            Scope::Local => counts.local += 1,
+        }
+    }
+
+    counts
+}
+
+struct WarningBadge {
+    label: &'static str,
+    style: Style,
+}
+
+fn warning_badge<T>(warnings: &[T]) -> WarningBadge
+where
+    T: ToString,
+{
+    if warnings.is_empty() {
+        WarningBadge {
+            label: "OK",
+            style: Style::default().fg(Color::Green),
+        }
+    } else if warnings
+        .iter()
+        .any(|warning| warning.to_string().contains("wildcard"))
+    {
+        WarningBadge {
+            label: "WILDCARD",
+            style: Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        }
+    } else {
+        WarningBadge {
+            label: "PUBLIC",
+            style: Style::default()
+                .fg(Color::LightRed)
+                .add_modifier(Modifier::BOLD),
+        }
+    }
 }
 
 fn format_bytes(bytes: u64) -> String {
