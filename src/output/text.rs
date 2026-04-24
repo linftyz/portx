@@ -214,7 +214,17 @@ pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]
         return Ok(());
     }
 
-    print_details(details);
+    println!("{}", watch_summary(details.len()));
+    println!();
+
+    for (index, detail) in details.iter().enumerate() {
+        if index > 0 {
+            println!("{}", "-".repeat(80));
+        }
+
+        print_watch_listener(index, detail);
+    }
+
     Ok(())
 }
 
@@ -333,6 +343,14 @@ fn process_summary(process_name: &str, pid: Option<u32>) -> String {
     }
 }
 
+fn watch_summary(count: usize) -> String {
+    if count == 1 {
+        "Monitoring 1 listener".to_string()
+    } else {
+        format!("Monitoring {count} listeners")
+    }
+}
+
 fn print_section(title: &str) {
     println!("{title}");
     println!("{}", "-".repeat(title.len()));
@@ -344,6 +362,86 @@ fn print_detail_line(label: &str, value: String) {
 
 fn watch_field(label: &str, value: String) -> String {
     format!("{label}: {value}")
+}
+
+fn print_watch_listener(index: usize, detail: &PortDetails) {
+    println!(
+        "[Listener {}] {} / {} / {}",
+        index + 1,
+        detail.listener.bind_addr,
+        detail.listener.protocol,
+        detail.listener.scope
+    );
+    println!(
+        "{}",
+        watch_line(&[
+            (
+                "Process",
+                process_summary(
+                    detail.listener.process_name.as_deref().unwrap_or("N/A"),
+                    detail.listener.pid,
+                ),
+            ),
+            ("User", detail.user.as_deref().unwrap_or("N/A").to_string()),
+        ])
+    );
+    println!(
+        "{}",
+        watch_line(&[
+            ("Risk", format_warnings(&detail.warnings)),
+            (
+                "Command",
+                detail
+                    .listener
+                    .command
+                    .as_deref()
+                    .map_or_else(|| "N/A".to_string(), |command| truncate(command, 52)),
+            ),
+        ])
+    );
+    println!(
+        "{}",
+        watch_line(&[
+            (
+                "CPU",
+                detail
+                    .cpu_percent
+                    .map_or_else(|| "N/A".to_string(), |cpu| format!("{cpu:.1}%")),
+            ),
+            (
+                "Memory",
+                detail
+                    .memory_bytes
+                    .map_or_else(|| "N/A".to_string(), format_bytes),
+            ),
+            (
+                "Threads",
+                detail
+                    .thread_count
+                    .map_or_else(|| "N/A".to_string(), |threads| threads.to_string()),
+            ),
+            (
+                "Connections",
+                detail
+                    .connection_count
+                    .map_or_else(|| "N/A".to_string(), |connections| connections.to_string()),
+            ),
+            (
+                "Uptime",
+                detail
+                    .uptime_seconds
+                    .map_or_else(|| "N/A".to_string(), format_duration),
+            ),
+        ])
+    );
+}
+
+fn watch_line(fields: &[(&str, String)]) -> String {
+    fields
+        .iter()
+        .map(|(label, value)| format!("{label}: {value}"))
+        .collect::<Vec<_>>()
+        .join("  |  ")
 }
 
 fn format_warnings(warnings: &[PortWarning]) -> String {
