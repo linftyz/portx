@@ -6,11 +6,12 @@ use std::{
 use ratatui::{
     DefaultTerminal, Frame,
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
-    layout::{Constraint, Flex, Layout, Rect},
+    layout::{Constraint, Flex, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        Block, Borders, Cell, Clear, Paragraph, Row, StatefulWidget, Table, TableState, Wrap,
+        Block, Borders, Cell, Clear, Paragraph, Row, Scrollbar, ScrollbarOrientation,
+        ScrollbarState, StatefulWidget, Table, TableState, Wrap,
     },
 };
 
@@ -159,6 +160,7 @@ impl App {
             KeyCode::PageDown => self.scroll_details_down(8),
             KeyCode::PageUp => self.scroll_details_up(8),
             KeyCode::Home => self.detail_scroll = 0,
+            KeyCode::End => self.detail_scroll = self.max_detail_scroll(u16::MAX),
             KeyCode::Enter => self.detail_focus = !self.detail_focus,
             KeyCode::Char('k') => self.start_kill_prompt(),
             KeyCode::Char('?') | KeyCode::Char('h') => self.show_help = true,
@@ -293,11 +295,24 @@ impl App {
     }
 
     fn scroll_details_down(&mut self, step: u16) {
-        self.detail_scroll = self.detail_scroll.saturating_add(step);
+        self.detail_scroll = self.max_detail_scroll(step);
     }
 
     fn scroll_details_up(&mut self, step: u16) {
         self.detail_scroll = self.detail_scroll.saturating_sub(step);
+    }
+
+    fn max_detail_scroll(&self, step: u16) -> u16 {
+        let max_scroll = self.detail_line_count().saturating_sub(1);
+        self.detail_scroll.saturating_add(step).min(max_scroll)
+    }
+
+    fn detail_line_count(&self) -> u16 {
+        detail_lines(&self.details)
+            .len()
+            .min(usize::from(u16::MAX))
+            .try_into()
+            .unwrap_or(u16::MAX)
     }
 }
 
@@ -479,17 +494,13 @@ fn render_list(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_details(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
-    let title = if focused {
-        "Details (focused)"
-    } else {
-        "Details"
-    };
-
     let body = if app.details.is_empty() {
         vec![Line::from("No listener details available.")]
     } else {
         detail_lines(&app.details)
     };
+    let viewport = detail_viewport(area, body.len(), usize::from(app.detail_scroll));
+    let title = detail_title(focused, viewport);
 
     let paragraph = Paragraph::new(body)
         .block(
@@ -502,10 +513,27 @@ fn render_details(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
                 })
                 .title(title),
         )
-        .scroll((app.detail_scroll, 0))
+        .scroll((viewport.scroll as u16, 0))
         .wrap(Wrap { trim: true });
 
     frame.render_widget(paragraph, area);
+
+    if viewport.is_scrollable() {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .thumb_style(Style::default().fg(Color::Cyan))
+            .track_style(Style::default().fg(Color::DarkGray));
+        let mut state = ScrollbarState::new(viewport.total_lines)
+            .position(viewport.scroll)
+            .viewport_content_length(viewport.viewport_lines);
+        frame.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin {
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut state,
+        );
+    }
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
@@ -634,6 +662,7 @@ fn render_help(frame: &mut Frame) {
         Line::from("Enter      Toggle detail focus mode"),
         Line::from("PgUp/PgDn  Scroll details faster"),
         Line::from("Home       Jump to the top of the details pane"),
+        Line::from("End        Jump to the bottom of the details pane"),
         Line::from("Esc        Leave detail focus or close this help"),
         Line::from("k          Open the kill confirmation dialog"),
         Line::from("y / n      Confirm or cancel the kill dialog"),
@@ -655,6 +684,7 @@ fn render_help(frame: &mut Frame) {
         Line::from("The screen refreshes once per second."),
         Line::from("The selected row drives the details pane on the right."),
         Line::from("When detail focus is on, Up / Down scroll details instead of changing rows."),
+        Line::from("A scrollbar appears when the details pane is longer than the viewport."),
     ])
     .block(Block::default().borders(Borders::ALL).title("Help"))
     .wrap(Wrap { trim: true });
@@ -680,6 +710,53 @@ fn centered_rect(horizontal_percent: u16, vertical_percent: u16, area: Rect) -> 
     .split(vertical[1]);
 
     horizontal[1]
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DetailViewport {
+    total_lines: usize,
+    viewport_lines: usize,
+    scroll: usize,
+}
+
+impl DetailViewport {
+    fn is_scrollable(self) -> bool {
+        self.total_lines > self.viewport_lines
+    }
+}
+
+fn detail_viewport(area: Rect, total_lines: usize, requested_scroll: usize) -> DetailViewport {
+    let viewport_lines = usize::from(area.height.saturating_sub(2)).max(1);
+    let max_scroll = total_lines.saturating_sub(viewport_lines);
+    let scroll = requested_scroll.min(max_scroll);
+
+    DetailViewport {
+        total_lines,
+        viewport_lines,
+        scroll,
+    }
+}
+
+fn detail_title(focused: bool, viewport: DetailViewport) -> String {
+    let base = if focused {
+        "Details (focused)"
+    } else {
+        "Details"
+    };
+
+    if viewport.total_lines == 0 {
+        return base.to_string();
+    }
+
+    if viewport.is_scrollable() {
+        let start = viewport.scroll + 1;
+        let end = viewport
+            .total_lines
+            .min(viewport.scroll.saturating_add(viewport.viewport_lines));
+        format!("{base} {start}-{end}/{}", viewport.total_lines)
+    } else {
+        format!("{base} {}/{}", viewport.total_lines, viewport.total_lines)
+    }
 }
 
 fn detail_lines(details: &[PortDetails]) -> Vec<Line<'static>> {
