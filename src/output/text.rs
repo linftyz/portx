@@ -1,20 +1,17 @@
 use std::{
-    env,
     io::{self, IsTerminal, Write},
     time::SystemTime,
 };
 
 use chrono::{DateTime, Local};
-use colored::{ColoredString, Colorize};
 
 use crate::{
     cli::ScopeArg,
-    core::{
-        KillPlan, KillResult, ListenerRecord, PortDetails, PortWarning, Scope,
-        warnings_for_listener,
-    },
+    core::{KillPlan, KillResult, ListenerRecord, PortDetails, PortWarning, warnings_for_listener},
     error::{PortxError, Result},
 };
+
+use super::style;
 
 const PORT_WIDTH: usize = 6;
 const PROTOCOL_WIDTH: usize = 6;
@@ -31,16 +28,20 @@ pub fn print_list(records: &[ListenerRecord], scope: Option<ScopeArg>) {
         return;
     }
 
-    println!("{}", accent(&list_summary(records.len(), scope)));
-    println!("{}", muted(&scope_breakdown(records)));
+    println!("{}", style::accent(&list_summary(records.len(), scope)));
+    println!("{}", style::muted(&style::scope_breakdown(records)));
     println!();
     print_list_table(records);
 }
 
 pub fn print_find(records: &[ListenerRecord], process_name: &str, scope: Option<ScopeArg>) {
-    println!("{} {}", muted("Query:"), highlight(process_name));
-    println!("{}", accent(&list_summary(records.len(), scope)));
-    println!("{}", muted(&scope_breakdown(records)));
+    println!(
+        "{} {}",
+        style::muted("Query:"),
+        style::highlight(process_name)
+    );
+    println!("{}", style::accent(&list_summary(records.len(), scope)));
+    println!("{}", style::muted(&style::scope_breakdown(records)));
     println!();
 
     if records.is_empty() {
@@ -58,29 +59,33 @@ pub fn print_details(details: &[PortDetails]) {
     }
 
     let port = details[0].listener.port;
-    println!("{} {}", accent("Port"), highlight(&port.to_string()));
-    println!("{}", muted(&detail_count_label(details.len())));
+    println!(
+        "{} {}",
+        style::accent("Port"),
+        style::highlight(&port.to_string())
+    );
+    println!("{}", style::muted(&detail_count_label(details.len())));
     println!();
 
     for (index, detail) in details.iter().enumerate() {
         if index > 0 {
             println!();
-            println!("{}", muted(&"=".repeat(80)));
+            println!("{}", style::muted(&"=".repeat(80)));
             println!();
         }
 
         println!(
             "{}",
-            accent(&listener_heading(index, details.len(), detail))
+            style::accent(&listener_heading(index, details.len(), detail))
         );
         println!();
         print_section("Network");
         print_detail_line("Bind", detail.listener.bind_addr.to_string());
         print_detail_line(
             "Scope",
-            format_scope_value(&detail.listener.scope.to_string()),
+            style::scope_value(&detail.listener.scope.to_string()),
         );
-        print_detail_line("Risk", format_warning_value(&detail.warnings));
+        print_detail_line("Risk", style::warning_value(&detail.warnings));
         print_detail_line(
             "Connections",
             detail
@@ -156,24 +161,24 @@ pub fn confirm_kill(plan: &KillPlan, skip_confirmation: bool) -> Result<()> {
     let mode = if plan.force { "SIGKILL" } else { "SIGTERM" };
     println!(
         "{} {} {} {} {} {}?",
-        accent("Kill"),
-        highlight(&plan.pid.to_string()),
-        muted("on port"),
-        highlight(&plan.port.to_string()),
-        muted("with"),
-        warning_text(mode)
+        style::accent("Kill"),
+        style::highlight(&plan.pid.to_string()),
+        style::muted("on port"),
+        style::highlight(&plan.port.to_string()),
+        style::muted("with"),
+        style::warning(mode)
     );
     println!(
         "{} {}",
-        muted("Process:"),
+        style::muted("Process:"),
         plan.process_name.as_deref().unwrap_or("N/A")
     );
     println!(
         "{} {}",
-        muted("Command:"),
+        style::muted("Command:"),
         plan.command.as_deref().unwrap_or("N/A")
     );
-    print!("{} ", warning_text("Continue? [y/N]:"));
+    print!("{} ", style::warning("Continue? [y/N]:"));
     io::stdout()
         .flush()
         .map_err(|_| PortxError::ConfirmationRequired)?;
@@ -195,12 +200,12 @@ pub fn print_kill_result(result: &KillResult) {
     let mode = if result.force { "SIGKILL" } else { "SIGTERM" };
     println!(
         "{} {} {} {} {} {} {}",
-        success_text("Sent"),
-        warning_text(mode),
-        muted("to PID"),
-        highlight(&result.pid.to_string()),
-        muted("on port"),
-        highlight(&result.port.to_string()),
+        style::success("Sent"),
+        style::warning(mode),
+        style::muted("to PID"),
+        style::highlight(&result.pid.to_string()),
+        style::muted("on port"),
+        style::highlight(&result.port.to_string()),
         result.process_name.as_deref().unwrap_or("N/A")
     );
 }
@@ -214,8 +219,8 @@ pub fn print_watch_placeholder(port: u16, pid: Option<u32>) {
 
 pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]) -> Result<()> {
     clear_screen();
-    println!("{}", accent("portx watch"));
-    println!("{}", muted(&"=".repeat(80)));
+    println!("{}", style::accent("portx watch"));
+    println!("{}", style::muted(&"=".repeat(80)));
     println!(
         "{}  {}  {}",
         watch_field("Port", port.to_string()),
@@ -237,26 +242,26 @@ pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]
             }
         )
     );
-    println!("{}", muted(&"=".repeat(80)));
-    println!("{}", muted("Press Ctrl-C to stop."));
+    println!("{}", style::muted(&"=".repeat(80)));
+    println!("{}", style::muted("Press Ctrl-C to stop."));
     println!();
 
     if details.is_empty() {
         println!(
             "{} {} {}",
-            warning_text("Port"),
-            highlight(&port.to_string()),
-            warning_text("is not currently listening.")
+            style::warning("Port"),
+            style::highlight(&port.to_string()),
+            style::warning("is not currently listening.")
         );
         return Ok(());
     }
 
-    println!("{}", accent(&watch_summary(details.len())));
+    println!("{}", style::accent(&watch_summary(details.len())));
     println!();
 
     for (index, detail) in details.iter().enumerate() {
         if index > 0 {
-            println!("{}", muted(&"-".repeat(80)));
+            println!("{}", style::muted(&"-".repeat(80)));
         }
 
         print_watch_listener(index, detail);
@@ -275,7 +280,7 @@ fn print_list_table(records: &[ListenerRecord]) {
 }
 
 fn render_list_header() -> String {
-    accent(&render_table_row(&[
+    style::accent(&render_table_row(&[
         ("PORT", PORT_WIDTH, Alignment::Right),
         ("PROTO", PROTOCOL_WIDTH, Alignment::Left),
         ("SCOPE", SCOPE_WIDTH, Alignment::Left),
@@ -287,7 +292,7 @@ fn render_list_header() -> String {
 }
 
 fn render_list_separator() -> String {
-    muted(&render_table_row(&[
+    style::muted(&render_table_row(&[
         (&"-".repeat(PORT_WIDTH), PORT_WIDTH, Alignment::Left),
         (&"-".repeat(PROTOCOL_WIDTH), PROTOCOL_WIDTH, Alignment::Left),
         (&"-".repeat(SCOPE_WIDTH), SCOPE_WIDTH, Alignment::Left),
@@ -312,11 +317,11 @@ fn render_list_row(record: &ListenerRecord) -> String {
     [
         format_cell(&port, PORT_WIDTH, Alignment::Right),
         format_cell(&protocol, PROTOCOL_WIDTH, Alignment::Left),
-        style_scope_cell(&scope, SCOPE_WIDTH),
+        style::table_scope_cell(&scope, SCOPE_WIDTH),
         format_cell(&pid, PID_WIDTH, Alignment::Right),
         format_cell(&address, ADDRESS_WIDTH, Alignment::Left),
         format_cell(&process, PROCESS_WIDTH, Alignment::Left),
-        style_warning_cell(&warnings, WARNINGS_WIDTH),
+        style::table_warning_cell(&warnings, WARNINGS_WIDTH),
     ]
     .join(" | ")
 }
@@ -351,14 +356,6 @@ fn list_summary(count: usize, scope: Option<ScopeArg>) -> String {
         Some(scope) => format!("Showing {count} {noun} (scope: {})", scope_label(scope)),
         None => format!("Showing {count} {noun}"),
     }
-}
-
-fn scope_breakdown(records: &[ListenerRecord]) -> String {
-    let counts = count_scopes(records);
-    format!(
-        "Public: {}  Lan: {}  Local: {}",
-        counts.public, counts.lan, counts.local
-    )
 }
 
 fn detail_count_label(count: usize) -> String {
@@ -398,29 +395,29 @@ fn watch_summary(count: usize) -> String {
 }
 
 fn print_section(title: &str) {
-    println!("{}", accent(title));
-    println!("{}", muted(&"-".repeat(title.len())));
+    println!("{}", style::accent(title));
+    println!("{}", style::muted(&"-".repeat(title.len())));
 }
 
 fn print_detail_line(label: &str, value: String) {
     println!(
         "{} : {}",
-        muted(&format!("{label:>width$}", width = DETAIL_LABEL_WIDTH)),
+        style::muted(&format!("{label:>width$}", width = DETAIL_LABEL_WIDTH)),
         value
     );
 }
 
 fn watch_field(label: &str, value: String) -> String {
-    format!("{} {}", muted(&format!("{label}:")), value)
+    format!("{} {}", style::muted(&format!("{label}:")), value)
 }
 
 fn print_watch_listener(index: usize, detail: &PortDetails) {
     println!(
         "{} {} / {} / {}",
-        accent(&format!("[Listener {}]", index + 1)),
+        style::accent(&format!("[Listener {}]", index + 1)),
         detail.listener.bind_addr,
         detail.listener.protocol,
-        format_scope_value(&detail.listener.scope.to_string())
+        style::scope_value(&detail.listener.scope.to_string())
     );
     println!(
         "{}",
@@ -438,7 +435,7 @@ fn print_watch_listener(index: usize, detail: &PortDetails) {
     println!(
         "{}",
         watch_line(&[
-            ("Risk", format_warning_value(&detail.warnings)),
+            ("Risk", style::warning_value(&detail.warnings)),
             (
                 "Command",
                 detail
@@ -489,21 +486,13 @@ fn print_watch_listener(index: usize, detail: &PortDetails) {
 fn watch_line(fields: &[(&str, String)]) -> String {
     fields
         .iter()
-        .map(|(label, value)| format!("{} {}", muted(&format!("{label}:")), value))
+        .map(|(label, value)| format!("{} {}", style::muted(&format!("{label}:")), value))
         .collect::<Vec<_>>()
         .join("  |  ")
 }
 
 fn format_warnings(warnings: &[PortWarning]) -> String {
-    if warnings.is_empty() {
-        "-".to_string()
-    } else {
-        warnings
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
+    style::warning_text(warnings)
 }
 
 fn scope_label(scope: ScopeArg) -> &'static str {
@@ -516,115 +505,6 @@ fn scope_label(scope: ScopeArg) -> &'static str {
 
 fn is_tty() -> bool {
     std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
-}
-
-fn color_enabled() -> bool {
-    std::io::stdout().is_terminal()
-        && env::var_os("NO_COLOR").is_none()
-        && env::var("TERM").map(|term| term != "dumb").unwrap_or(true)
-}
-
-fn style(value: &str, code: &str) -> String {
-    paint(value, |text| match code {
-        "accent" => text.cyan().bold(),
-        "muted" => text.bright_black(),
-        "highlight" => text.bold(),
-        "success" => text.green().bold(),
-        "warning" => text.yellow().bold(),
-        "danger" => text.red().bold(),
-        _ => text.normal(),
-    })
-}
-
-fn accent(value: &str) -> String {
-    style(value, "accent")
-}
-
-fn muted(value: &str) -> String {
-    style(value, "muted")
-}
-
-fn highlight(value: &str) -> String {
-    style(value, "highlight")
-}
-
-fn success_text(value: &str) -> String {
-    style(value, "success")
-}
-
-fn warning_text(value: &str) -> String {
-    style(value, "warning")
-}
-
-fn danger_text(value: &str) -> String {
-    style(value, "danger")
-}
-
-fn format_scope_value(scope: &str) -> String {
-    match scope {
-        "PUBLIC" => danger_text(scope),
-        "LAN" => warning_text(scope),
-        "LOCAL" => success_text(scope),
-        _ => scope.to_string(),
-    }
-}
-
-fn format_warning_value(warnings: &[PortWarning]) -> String {
-    let value = format_warnings(warnings);
-    if warnings.is_empty() {
-        muted(&value)
-    } else {
-        danger_text(&value)
-    }
-}
-
-fn style_scope_cell(scope: &str, width: usize) -> String {
-    let padded = format_cell(scope, width, Alignment::Left);
-    format_scope_value(&padded)
-}
-
-fn style_warning_cell(warnings: &str, width: usize) -> String {
-    let padded = format_cell(warnings, width, Alignment::Left);
-    if warnings == "-" {
-        muted(&padded)
-    } else {
-        danger_text(&padded)
-    }
-}
-
-fn paint<F>(value: &str, painter: F) -> String
-where
-    F: FnOnce(&str) -> ColoredString,
-{
-    if color_enabled() {
-        painter(value).to_string()
-    } else {
-        value.to_string()
-    }
-}
-
-struct ScopeCounts {
-    public: usize,
-    lan: usize,
-    local: usize,
-}
-
-fn count_scopes(records: &[ListenerRecord]) -> ScopeCounts {
-    let mut counts = ScopeCounts {
-        public: 0,
-        lan: 0,
-        local: 0,
-    };
-
-    for record in records {
-        match record.scope {
-            Scope::Public => counts.public += 1,
-            Scope::Lan => counts.lan += 1,
-            Scope::Local => counts.local += 1,
-        }
-    }
-
-    counts
 }
 
 fn clear_screen() {

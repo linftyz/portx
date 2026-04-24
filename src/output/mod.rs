@@ -1,4 +1,5 @@
 mod json;
+mod style;
 mod text;
 
 use crate::{
