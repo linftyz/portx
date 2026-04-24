@@ -1,4 +1,5 @@
 use std::{
+    env,
     io::{self, IsTerminal, Write},
     time::SystemTime,
 };
@@ -26,14 +27,14 @@ pub fn print_list(records: &[ListenerRecord], scope: Option<ScopeArg>) {
         return;
     }
 
-    println!("{}", list_summary(records.len(), scope));
+    println!("{}", accent(&list_summary(records.len(), scope)));
     println!();
     print_list_table(records);
 }
 
 pub fn print_find(records: &[ListenerRecord], process_name: &str, scope: Option<ScopeArg>) {
-    println!("Query: {}", process_name);
-    println!("{}", list_summary(records.len(), scope));
+    println!("{} {}", muted("Query:"), highlight(process_name));
+    println!("{}", accent(&list_summary(records.len(), scope)));
     println!();
 
     if records.is_empty() {
@@ -51,23 +52,29 @@ pub fn print_details(details: &[PortDetails]) {
     }
 
     let port = details[0].listener.port;
-    println!("Port {port}");
-    println!("{}", detail_count_label(details.len()));
+    println!("{} {}", accent("Port"), highlight(&port.to_string()));
+    println!("{}", muted(&detail_count_label(details.len())));
     println!();
 
     for (index, detail) in details.iter().enumerate() {
         if index > 0 {
             println!();
-            println!("{}", "=".repeat(80));
+            println!("{}", muted(&"=".repeat(80)));
             println!();
         }
 
-        println!("{}", listener_heading(index, details.len(), detail));
+        println!(
+            "{}",
+            accent(&listener_heading(index, details.len(), detail))
+        );
         println!();
         print_section("Network");
         print_detail_line("Bind", detail.listener.bind_addr.to_string());
-        print_detail_line("Scope", detail.listener.scope.to_string());
-        print_detail_line("Risk", format_warnings(&detail.warnings));
+        print_detail_line(
+            "Scope",
+            format_scope_value(&detail.listener.scope.to_string()),
+        );
+        print_detail_line("Risk", format_warning_value(&detail.warnings));
         print_detail_line(
             "Connections",
             detail
@@ -141,10 +148,26 @@ pub fn confirm_kill(plan: &KillPlan, skip_confirmation: bool) -> Result<()> {
     }
 
     let mode = if plan.force { "SIGKILL" } else { "SIGTERM" };
-    println!("Kill PID {} on port {} with {}?", plan.pid, plan.port, mode);
-    println!("Process: {}", plan.process_name.as_deref().unwrap_or("N/A"));
-    println!("Command: {}", plan.command.as_deref().unwrap_or("N/A"));
-    print!("Continue? [y/N]: ");
+    println!(
+        "{} {} {} {} {} {}?",
+        accent("Kill"),
+        highlight(&plan.pid.to_string()),
+        muted("on port"),
+        highlight(&plan.port.to_string()),
+        muted("with"),
+        warning_text(mode)
+    );
+    println!(
+        "{} {}",
+        muted("Process:"),
+        plan.process_name.as_deref().unwrap_or("N/A")
+    );
+    println!(
+        "{} {}",
+        muted("Command:"),
+        plan.command.as_deref().unwrap_or("N/A")
+    );
+    print!("{} ", warning_text("Continue? [y/N]:"));
     io::stdout()
         .flush()
         .map_err(|_| PortxError::ConfirmationRequired)?;
@@ -165,10 +188,13 @@ pub fn confirm_kill(plan: &KillPlan, skip_confirmation: bool) -> Result<()> {
 pub fn print_kill_result(result: &KillResult) {
     let mode = if result.force { "SIGKILL" } else { "SIGTERM" };
     println!(
-        "Sent {} to PID {} on port {} ({})",
-        mode,
-        result.pid,
-        result.port,
+        "{} {} {} {} {} {} {}",
+        success_text("Sent"),
+        warning_text(mode),
+        muted("to PID"),
+        highlight(&result.pid.to_string()),
+        muted("on port"),
+        highlight(&result.port.to_string()),
         result.process_name.as_deref().unwrap_or("N/A")
     );
 }
@@ -182,8 +208,8 @@ pub fn print_watch_placeholder(port: u16, pid: Option<u32>) {
 
 pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]) -> Result<()> {
     clear_screen();
-    println!("portx watch");
-    println!("{}", "=".repeat(80));
+    println!("{}", accent("portx watch"));
+    println!("{}", muted(&"=".repeat(80)));
     println!(
         "{}  {}  {}",
         watch_field("Port", port.to_string()),
@@ -205,21 +231,26 @@ pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]
             }
         )
     );
-    println!("{}", "=".repeat(80));
-    println!("Press Ctrl-C to stop.");
+    println!("{}", muted(&"=".repeat(80)));
+    println!("{}", muted("Press Ctrl-C to stop."));
     println!();
 
     if details.is_empty() {
-        println!("Port {port} is not currently listening.");
+        println!(
+            "{} {} {}",
+            warning_text("Port"),
+            highlight(&port.to_string()),
+            warning_text("is not currently listening.")
+        );
         return Ok(());
     }
 
-    println!("{}", watch_summary(details.len()));
+    println!("{}", accent(&watch_summary(details.len())));
     println!();
 
     for (index, detail) in details.iter().enumerate() {
         if index > 0 {
-            println!("{}", "-".repeat(80));
+            println!("{}", muted(&"-".repeat(80)));
         }
 
         print_watch_listener(index, detail);
@@ -238,7 +269,7 @@ fn print_list_table(records: &[ListenerRecord]) {
 }
 
 fn render_list_header() -> String {
-    render_table_row(&[
+    accent(&render_table_row(&[
         ("PORT", PORT_WIDTH, Alignment::Right),
         ("PROTO", PROTOCOL_WIDTH, Alignment::Left),
         ("SCOPE", SCOPE_WIDTH, Alignment::Left),
@@ -246,11 +277,11 @@ fn render_list_header() -> String {
         ("ADDRESS", ADDRESS_WIDTH, Alignment::Left),
         ("PROCESS", PROCESS_WIDTH, Alignment::Left),
         ("WARNINGS", WARNINGS_WIDTH, Alignment::Left),
-    ])
+    ]))
 }
 
 fn render_list_separator() -> String {
-    render_table_row(&[
+    muted(&render_table_row(&[
         (&"-".repeat(PORT_WIDTH), PORT_WIDTH, Alignment::Left),
         (&"-".repeat(PROTOCOL_WIDTH), PROTOCOL_WIDTH, Alignment::Left),
         (&"-".repeat(SCOPE_WIDTH), SCOPE_WIDTH, Alignment::Left),
@@ -258,19 +289,19 @@ fn render_list_separator() -> String {
         (&"-".repeat(ADDRESS_WIDTH), ADDRESS_WIDTH, Alignment::Left),
         (&"-".repeat(PROCESS_WIDTH), PROCESS_WIDTH, Alignment::Left),
         (&"-".repeat(WARNINGS_WIDTH), WARNINGS_WIDTH, Alignment::Left),
-    ])
+    ]))
 }
 
 fn render_list_row(record: &ListenerRecord) -> String {
     let port = record.port.to_string();
     let protocol = record.protocol.to_string();
-    let scope = record.scope.to_string();
+    let scope = format_scope_value(&record.scope.to_string());
     let pid = record
         .pid
         .map_or_else(|| "N/A".to_string(), |pid| pid.to_string());
     let address = record.bind_addr.to_string();
     let process = record.process_name.as_deref().unwrap_or("N/A").to_string();
-    let warnings = format_warnings(&warnings_for_listener(record));
+    let warnings = format_warning_value(&warnings_for_listener(record));
 
     render_table_row(&[
         (&port, PORT_WIDTH, Alignment::Right),
@@ -352,25 +383,29 @@ fn watch_summary(count: usize) -> String {
 }
 
 fn print_section(title: &str) {
-    println!("{title}");
-    println!("{}", "-".repeat(title.len()));
+    println!("{}", accent(title));
+    println!("{}", muted(&"-".repeat(title.len())));
 }
 
 fn print_detail_line(label: &str, value: String) {
-    println!("{label:>width$} : {value}", width = DETAIL_LABEL_WIDTH);
+    println!(
+        "{} : {}",
+        muted(&format!("{label:>width$}", width = DETAIL_LABEL_WIDTH)),
+        value
+    );
 }
 
 fn watch_field(label: &str, value: String) -> String {
-    format!("{label}: {value}")
+    format!("{} {}", muted(&format!("{label}:")), value)
 }
 
 fn print_watch_listener(index: usize, detail: &PortDetails) {
     println!(
-        "[Listener {}] {} / {} / {}",
-        index + 1,
+        "{} {} / {} / {}",
+        accent(&format!("[Listener {}]", index + 1)),
         detail.listener.bind_addr,
         detail.listener.protocol,
-        detail.listener.scope
+        format_scope_value(&detail.listener.scope.to_string())
     );
     println!(
         "{}",
@@ -388,7 +423,7 @@ fn print_watch_listener(index: usize, detail: &PortDetails) {
     println!(
         "{}",
         watch_line(&[
-            ("Risk", format_warnings(&detail.warnings)),
+            ("Risk", format_warning_value(&detail.warnings)),
             (
                 "Command",
                 detail
@@ -439,7 +474,7 @@ fn print_watch_listener(index: usize, detail: &PortDetails) {
 fn watch_line(fields: &[(&str, String)]) -> String {
     fields
         .iter()
-        .map(|(label, value)| format!("{label}: {value}"))
+        .map(|(label, value)| format!("{} {}", muted(&format!("{label}:")), value))
         .collect::<Vec<_>>()
         .join("  |  ")
 }
@@ -466,6 +501,62 @@ fn scope_label(scope: ScopeArg) -> &'static str {
 
 fn is_tty() -> bool {
     std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+fn color_enabled() -> bool {
+    std::io::stdout().is_terminal()
+        && env::var_os("NO_COLOR").is_none()
+        && env::var("TERM").map(|term| term != "dumb").unwrap_or(true)
+}
+
+fn style(value: &str, code: &str) -> String {
+    if color_enabled() {
+        format!("\x1b[{code}m{value}\x1b[0m")
+    } else {
+        value.to_string()
+    }
+}
+
+fn accent(value: &str) -> String {
+    style(value, "1;36")
+}
+
+fn muted(value: &str) -> String {
+    style(value, "90")
+}
+
+fn highlight(value: &str) -> String {
+    style(value, "1")
+}
+
+fn success_text(value: &str) -> String {
+    style(value, "1;32")
+}
+
+fn warning_text(value: &str) -> String {
+    style(value, "1;33")
+}
+
+fn danger_text(value: &str) -> String {
+    style(value, "1;31")
+}
+
+fn format_scope_value(scope: &str) -> String {
+    match scope {
+        "PUBLIC" => danger_text(scope),
+        "LAN" => warning_text(scope),
+        "LOCAL" => success_text(scope),
+        _ => scope.to_string(),
+    }
+}
+
+fn format_warning_value(warnings: &[PortWarning]) -> String {
+    let value = format_warnings(warnings);
+    if warnings.is_empty() {
+        muted(&value)
+    } else {
+        danger_text(&value)
+    }
 }
 
 fn clear_screen() {
