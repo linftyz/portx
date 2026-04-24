@@ -18,6 +18,7 @@ const PID_WIDTH: usize = 8;
 const ADDRESS_WIDTH: usize = 30;
 const PROCESS_WIDTH: usize = 20;
 const WARNINGS_WIDTH: usize = 24;
+const DETAIL_LABEL_WIDTH: usize = 12;
 
 pub fn print_list(records: &[ListenerRecord], scope: Option<ScopeArg>) {
     if records.is_empty() {
@@ -57,52 +58,75 @@ pub fn print_details(details: &[PortDetails]) {
     for (index, detail) in details.iter().enumerate() {
         if index > 0 {
             println!();
-            println!("{}", "-".repeat(72));
+            println!("{}", "=".repeat(80));
             println!();
         }
 
         println!("{}", listener_heading(index, details.len(), detail));
-        println!("Risk: {}", format_warnings(&detail.warnings));
-        println!(
-            "Process: {}",
+        println!();
+        print_section("Network");
+        print_detail_line("Bind", detail.listener.bind_addr.to_string());
+        print_detail_line("Scope", detail.listener.scope.to_string());
+        print_detail_line("Risk", format_warnings(&detail.warnings));
+        print_detail_line(
+            "Connections",
+            detail
+                .connection_count
+                .map_or_else(|| "N/A".to_string(), |connections| connections.to_string()),
+        );
+        println!();
+
+        print_section("Process");
+        print_detail_line(
+            "Process",
             process_summary(
                 detail.listener.process_name.as_deref().unwrap_or("N/A"),
-                detail.listener.pid
-            )
+                detail.listener.pid,
+            ),
         );
-        println!(
-            "Command: {}",
-            detail.listener.command.as_deref().unwrap_or("N/A")
+        print_detail_line(
+            "Command",
+            detail
+                .listener
+                .command
+                .as_deref()
+                .unwrap_or("N/A")
+                .to_string(),
         );
-        println!(
-            "CWD: {}",
+        print_detail_line(
+            "CWD",
             detail
                 .cwd
                 .as_ref()
-                .map_or_else(|| "N/A".to_string(), |cwd| cwd.display().to_string())
+                .map_or_else(|| "N/A".to_string(), |cwd| cwd.display().to_string()),
         );
-        println!("User: {}", detail.user.as_deref().unwrap_or("N/A"));
+        print_detail_line("User", detail.user.as_deref().unwrap_or("N/A").to_string());
         println!();
-        println!(
-            "CPU: {}   Memory: {}   Threads: {}",
+
+        print_section("Resources");
+        print_detail_line(
+            "CPU",
             detail
                 .cpu_percent
                 .map_or_else(|| "N/A".to_string(), |cpu| format!("{cpu:.1}%")),
+        );
+        print_detail_line(
+            "Memory",
             detail
                 .memory_bytes
                 .map_or_else(|| "N/A".to_string(), format_bytes),
+        );
+        print_detail_line(
+            "Threads",
             detail
                 .thread_count
-                .map_or_else(|| "N/A".to_string(), |threads| threads.to_string())
+                .map_or_else(|| "N/A".to_string(), |threads| threads.to_string()),
         );
-        println!(
-            "Uptime: {}   Connections: {}",
+        print_detail_line(
+            "Uptime",
             detail
                 .uptime_seconds
                 .map_or_else(|| "N/A".to_string(), format_duration),
-            detail
-                .connection_count
-                .map_or_else(|| "N/A".to_string(), |connections| connections.to_string())
         );
     }
 }
@@ -159,21 +183,29 @@ pub fn print_watch_placeholder(port: u16, pid: Option<u32>) {
 pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]) -> Result<()> {
     clear_screen();
     println!("portx watch");
+    println!("{}", "=".repeat(80));
     println!(
-        "Port: {}   PID filter: {}   Listeners: {}",
-        port,
-        pid.map_or_else(|| "-".to_string(), |pid| pid.to_string()),
-        details.len()
+        "{}  {}  {}",
+        watch_field("Port", port.to_string()),
+        watch_field(
+            "PID filter",
+            pid.map_or_else(|| "-".to_string(), |pid| pid.to_string())
+        ),
+        watch_field("Listeners", details.len().to_string())
     );
-    println!("Updated: {}", local_timestamp_string());
     println!(
-        "Status: {}",
-        if details.is_empty() {
-            "NOT LISTENING"
-        } else {
-            "LISTENING"
-        }
+        "{}  {}",
+        watch_field("Updated", local_timestamp_string()),
+        watch_field(
+            "Status",
+            if details.is_empty() {
+                "NOT LISTENING".to_string()
+            } else {
+                "LISTENING".to_string()
+            }
+        )
     );
+    println!("{}", "=".repeat(80));
     println!("Press Ctrl-C to stop.");
     println!();
 
@@ -299,6 +331,19 @@ fn process_summary(process_name: &str, pid: Option<u32>) -> String {
         Some(pid) => format!("{process_name} (PID {pid})"),
         None => process_name.to_string(),
     }
+}
+
+fn print_section(title: &str) {
+    println!("{title}");
+    println!("{}", "-".repeat(title.len()));
+}
+
+fn print_detail_line(label: &str, value: String) {
+    println!("{label:>width$} : {value}", width = DETAIL_LABEL_WIDTH);
+}
+
+fn watch_field(label: &str, value: String) -> String {
+    format!("{label}: {value}")
 }
 
 fn format_warnings(warnings: &[PortWarning]) -> String {
