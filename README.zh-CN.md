@@ -203,6 +203,12 @@ cargo clippy
 cargo test
 ```
 
+另见：
+
+- [CHANGELOG.md](./CHANGELOG.md)
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
+- [LICENSE](./LICENSE)
+
 ## 当前限制
 
 - 目前只支持 macOS 和 Linux
