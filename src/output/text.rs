@@ -5,10 +5,14 @@ use std::{
 };
 
 use chrono::{DateTime, Local};
+use colored::{ColoredString, Colorize};
 
 use crate::{
     cli::ScopeArg,
-    core::{KillPlan, KillResult, ListenerRecord, PortDetails, PortWarning, warnings_for_listener},
+    core::{
+        KillPlan, KillResult, ListenerRecord, PortDetails, PortWarning, Scope,
+        warnings_for_listener,
+    },
     error::{PortxError, Result},
 };
 
@@ -28,6 +32,7 @@ pub fn print_list(records: &[ListenerRecord], scope: Option<ScopeArg>) {
     }
 
     println!("{}", accent(&list_summary(records.len(), scope)));
+    println!("{}", muted(&scope_breakdown(records)));
     println!();
     print_list_table(records);
 }
@@ -35,6 +40,7 @@ pub fn print_list(records: &[ListenerRecord], scope: Option<ScopeArg>) {
 pub fn print_find(records: &[ListenerRecord], process_name: &str, scope: Option<ScopeArg>) {
     println!("{} {}", muted("Query:"), highlight(process_name));
     println!("{}", accent(&list_summary(records.len(), scope)));
+    println!("{}", muted(&scope_breakdown(records)));
     println!();
 
     if records.is_empty() {
@@ -295,23 +301,24 @@ fn render_list_separator() -> String {
 fn render_list_row(record: &ListenerRecord) -> String {
     let port = record.port.to_string();
     let protocol = record.protocol.to_string();
-    let scope = format_scope_value(&record.scope.to_string());
+    let scope = record.scope.to_string();
     let pid = record
         .pid
         .map_or_else(|| "N/A".to_string(), |pid| pid.to_string());
     let address = record.bind_addr.to_string();
     let process = record.process_name.as_deref().unwrap_or("N/A").to_string();
-    let warnings = format_warning_value(&warnings_for_listener(record));
+    let warnings = format_warnings(&warnings_for_listener(record));
 
-    render_table_row(&[
-        (&port, PORT_WIDTH, Alignment::Right),
-        (&protocol, PROTOCOL_WIDTH, Alignment::Left),
-        (&scope, SCOPE_WIDTH, Alignment::Left),
-        (&pid, PID_WIDTH, Alignment::Right),
-        (&address, ADDRESS_WIDTH, Alignment::Left),
-        (&process, PROCESS_WIDTH, Alignment::Left),
-        (&warnings, WARNINGS_WIDTH, Alignment::Left),
-    ])
+    [
+        format_cell(&port, PORT_WIDTH, Alignment::Right),
+        format_cell(&protocol, PROTOCOL_WIDTH, Alignment::Left),
+        style_scope_cell(&scope, SCOPE_WIDTH),
+        format_cell(&pid, PID_WIDTH, Alignment::Right),
+        format_cell(&address, ADDRESS_WIDTH, Alignment::Left),
+        format_cell(&process, PROCESS_WIDTH, Alignment::Left),
+        style_warning_cell(&warnings, WARNINGS_WIDTH),
+    ]
+    .join(" | ")
 }
 
 fn render_table_row(columns: &[(&str, usize, Alignment)]) -> String {
@@ -344,6 +351,14 @@ fn list_summary(count: usize, scope: Option<ScopeArg>) -> String {
         Some(scope) => format!("Showing {count} {noun} (scope: {})", scope_label(scope)),
         None => format!("Showing {count} {noun}"),
     }
+}
+
+fn scope_breakdown(records: &[ListenerRecord]) -> String {
+    let counts = count_scopes(records);
+    format!(
+        "Public: {}  Lan: {}  Local: {}",
+        counts.public, counts.lan, counts.local
+    )
 }
 
 fn detail_count_label(count: usize) -> String {
@@ -510,35 +525,39 @@ fn color_enabled() -> bool {
 }
 
 fn style(value: &str, code: &str) -> String {
-    if color_enabled() {
-        format!("\x1b[{code}m{value}\x1b[0m")
-    } else {
-        value.to_string()
-    }
+    paint(value, |text| match code {
+        "accent" => text.cyan().bold(),
+        "muted" => text.bright_black(),
+        "highlight" => text.bold(),
+        "success" => text.green().bold(),
+        "warning" => text.yellow().bold(),
+        "danger" => text.red().bold(),
+        _ => text.normal(),
+    })
 }
 
 fn accent(value: &str) -> String {
-    style(value, "1;36")
+    style(value, "accent")
 }
 
 fn muted(value: &str) -> String {
-    style(value, "90")
+    style(value, "muted")
 }
 
 fn highlight(value: &str) -> String {
-    style(value, "1")
+    style(value, "highlight")
 }
 
 fn success_text(value: &str) -> String {
-    style(value, "1;32")
+    style(value, "success")
 }
 
 fn warning_text(value: &str) -> String {
-    style(value, "1;33")
+    style(value, "warning")
 }
 
 fn danger_text(value: &str) -> String {
-    style(value, "1;31")
+    style(value, "danger")
 }
 
 fn format_scope_value(scope: &str) -> String {
@@ -557,6 +576,55 @@ fn format_warning_value(warnings: &[PortWarning]) -> String {
     } else {
         danger_text(&value)
     }
+}
+
+fn style_scope_cell(scope: &str, width: usize) -> String {
+    let padded = format_cell(scope, width, Alignment::Left);
+    format_scope_value(&padded)
+}
+
+fn style_warning_cell(warnings: &str, width: usize) -> String {
+    let padded = format_cell(warnings, width, Alignment::Left);
+    if warnings == "-" {
+        muted(&padded)
+    } else {
+        danger_text(&padded)
+    }
+}
+
+fn paint<F>(value: &str, painter: F) -> String
+where
+    F: FnOnce(&str) -> ColoredString,
+{
+    if color_enabled() {
+        painter(value).to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+struct ScopeCounts {
+    public: usize,
+    lan: usize,
+    local: usize,
+}
+
+fn count_scopes(records: &[ListenerRecord]) -> ScopeCounts {
+    let mut counts = ScopeCounts {
+        public: 0,
+        lan: 0,
+        local: 0,
+    };
+
+    for record in records {
+        match record.scope {
+            Scope::Public => counts.public += 1,
+            Scope::Lan => counts.lan += 1,
+            Scope::Local => counts.local += 1,
+        }
+    }
+
+    counts
 }
 
 fn clear_screen() {
