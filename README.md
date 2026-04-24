@@ -53,7 +53,6 @@ When GitHub Releases are available, download the archive for your platform, extr
 Planned release artifact names:
 
 - `portx-vX.Y.Z-aarch64-apple-darwin.tar.gz`
-- `portx-vX.Y.Z-x86_64-apple-darwin.tar.gz`
 - `portx-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz`
 
 ### Build from source
@@ -241,7 +240,6 @@ For other users, the most practical distribution options are:
 This repository includes a GitHub Actions workflow that builds release archives for:
 
 - Apple Silicon macOS
-- Intel macOS
 - x86_64 Linux
 
 Pushing a tag like `v0.1.0` will build and upload release assets automatically.

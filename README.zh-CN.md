@@ -53,7 +53,6 @@
 计划中的发布产物命名如下：
 
 - `portx-vX.Y.Z-aarch64-apple-darwin.tar.gz`
-- `portx-vX.Y.Z-x86_64-apple-darwin.tar.gz`
 - `portx-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz`
 
 ### 从源码构建
@@ -241,7 +240,6 @@ cargo test
 仓库里已经补了一份 GitHub Actions 工作流，会为这些平台构建发布包：
 
 - Apple Silicon macOS
-- Intel macOS
 - x86_64 Linux
 
 当你推送像 `v0.1.0` 这样的 tag 时，工作流会自动构建并上传 release 产物。
