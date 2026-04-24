@@ -19,7 +19,7 @@ const SCOPE_WIDTH: usize = 7;
 const PID_WIDTH: usize = 8;
 const ADDRESS_WIDTH: usize = 30;
 const PROCESS_WIDTH: usize = 20;
-const WARNINGS_WIDTH: usize = 24;
+const RISK_WIDTH: usize = 24;
 const DETAIL_LABEL_WIDTH: usize = 12;
 
 pub fn print_list(records: &[ListenerRecord], scope: Option<ScopeArg>) {
@@ -159,25 +159,20 @@ pub fn confirm_kill(plan: &KillPlan, skip_confirmation: bool) -> Result<()> {
     }
 
     let mode = if plan.force { "SIGKILL" } else { "SIGTERM" };
-    println!(
-        "{} {} {} {} {} {}?",
-        style::accent("Kill"),
-        style::highlight(&plan.pid.to_string()),
-        style::muted("on port"),
-        style::highlight(&plan.port.to_string()),
-        style::muted("with"),
-        style::warning(mode)
+    println!("{}", style::accent("Kill confirmation"));
+    println!("{}", style::muted(&"=".repeat(80)));
+    print_detail_line("Port", style::highlight(&plan.port.to_string()));
+    print_detail_line("PID", style::highlight(&plan.pid.to_string()));
+    print_detail_line("Signal", style::warning(mode));
+    print_detail_line(
+        "Process",
+        plan.process_name.as_deref().unwrap_or("N/A").to_string(),
     );
-    println!(
-        "{} {}",
-        style::muted("Process:"),
-        plan.process_name.as_deref().unwrap_or("N/A")
+    print_detail_line(
+        "Command",
+        plan.command.as_deref().unwrap_or("N/A").to_string(),
     );
-    println!(
-        "{} {}",
-        style::muted("Command:"),
-        plan.command.as_deref().unwrap_or("N/A")
-    );
+    println!("{}", style::muted(&"=".repeat(80)));
     print!("{} ", style::warning("Continue? [y/N]:"));
     io::stdout()
         .flush()
@@ -199,13 +194,14 @@ pub fn confirm_kill(plan: &KillPlan, skip_confirmation: bool) -> Result<()> {
 pub fn print_kill_result(result: &KillResult) {
     let mode = if result.force { "SIGKILL" } else { "SIGTERM" };
     println!(
-        "{} {} {} {} {} {} {}",
+        "{} {} {} {} {} {} {} {}",
         style::success("Sent"),
         style::warning(mode),
         style::muted("to PID"),
         style::highlight(&result.pid.to_string()),
         style::muted("on port"),
         style::highlight(&result.port.to_string()),
+        style::muted("for"),
         result.process_name.as_deref().unwrap_or("N/A")
     );
 }
@@ -287,7 +283,7 @@ fn render_list_header() -> String {
         ("PID", PID_WIDTH, Alignment::Right),
         ("ADDRESS", ADDRESS_WIDTH, Alignment::Left),
         ("PROCESS", PROCESS_WIDTH, Alignment::Left),
-        ("WARNINGS", WARNINGS_WIDTH, Alignment::Left),
+        ("RISK", RISK_WIDTH, Alignment::Left),
     ]))
 }
 
@@ -299,7 +295,7 @@ fn render_list_separator() -> String {
         (&"-".repeat(PID_WIDTH), PID_WIDTH, Alignment::Left),
         (&"-".repeat(ADDRESS_WIDTH), ADDRESS_WIDTH, Alignment::Left),
         (&"-".repeat(PROCESS_WIDTH), PROCESS_WIDTH, Alignment::Left),
-        (&"-".repeat(WARNINGS_WIDTH), WARNINGS_WIDTH, Alignment::Left),
+        (&"-".repeat(RISK_WIDTH), RISK_WIDTH, Alignment::Left),
     ]))
 }
 
@@ -312,7 +308,7 @@ fn render_list_row(record: &ListenerRecord) -> String {
         .map_or_else(|| "N/A".to_string(), |pid| pid.to_string());
     let address = record.bind_addr.to_string();
     let process = record.process_name.as_deref().unwrap_or("N/A").to_string();
-    let warnings = format_warnings(&warnings_for_listener(record));
+    let risk = format_warnings(&warnings_for_listener(record));
 
     [
         format_cell(&port, PORT_WIDTH, Alignment::Right),
@@ -321,7 +317,7 @@ fn render_list_row(record: &ListenerRecord) -> String {
         format_cell(&pid, PID_WIDTH, Alignment::Right),
         format_cell(&address, ADDRESS_WIDTH, Alignment::Left),
         format_cell(&process, PROCESS_WIDTH, Alignment::Left),
-        style::table_warning_cell(&warnings, WARNINGS_WIDTH),
+        style::table_warning_cell(&risk, RISK_WIDTH),
     ]
     .join(" | ")
 }
