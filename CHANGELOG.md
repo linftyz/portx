@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), adapted for the current stage of the project.
 
+Version entries here describe project milestones. They do not automatically imply that a formal public release has been tagged or published.
+
 ## [Unreleased]
 
 ### Added

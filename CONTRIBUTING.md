@@ -160,3 +160,5 @@ Useful contribution areas include:
 ## Questions and Proposals
 
 If you want to propose a larger change, prefer discussing the shape first instead of landing a broad rewrite immediately. The project values forward-looking structure, but it also values keeping momentum and preserving working checkpoints.
+
+If your change affects versioning or release planning, also check [RELEASING.md](./RELEASING.md).
