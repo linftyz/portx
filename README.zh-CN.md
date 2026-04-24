@@ -46,6 +46,16 @@
 
 ## 安装
 
+### 下载预编译二进制
+
+如果仓库已经提供 GitHub Releases，可以直接下载对应平台的压缩包，解压后把 `portx` 放到你的 `PATH` 目录里即可。
+
+计划中的发布产物命名如下：
+
+- `portx-vX.Y.Z-aarch64-apple-darwin.tar.gz`
+- `portx-vX.Y.Z-x86_64-apple-darwin.tar.gz`
+- `portx-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz`
+
 ### 从源码构建
 
 ```bash
@@ -65,6 +75,19 @@ cargo run -- list
 ```bash
 cargo install --path .
 ```
+
+### 从发布压缩包安装
+
+下面是 macOS 或 Linux 下载压缩包后的示例：
+
+```bash
+tar -xzf portx-vX.Y.Z-<target>.tar.gz
+cd portx-vX.Y.Z-<target>
+chmod +x portx
+mv portx /usr/local/bin/portx
+```
+
+也可以放到其他在 `PATH` 里的目录。
 
 ## 用法
 
@@ -207,6 +230,21 @@ cargo test
 
 - [CHANGELOG.md](./CHANGELOG.md)
 - [LICENSE](./LICENSE)
+
+## 分发方式
+
+如果要给其他人使用，目前最实用的两种方式是：
+
+- 用 `cargo install --path .` 从源码安装
+- 通过 GitHub Releases 下载预编译压缩包
+
+仓库里已经补了一份 GitHub Actions 工作流，会为这些平台构建发布包：
+
+- Apple Silicon macOS
+- Intel macOS
+- x86_64 Linux
+
+当你推送像 `v0.1.0` 这样的 tag 时，工作流会自动构建并上传 release 产物。
 
 ## 当前限制
 

@@ -46,6 +46,16 @@ Warnings are emitted for public wildcard or public global binds so risky listene
 
 ## Installation
 
+### Download a prebuilt binary
+
+When GitHub Releases are available, download the archive for your platform, extract it, and move `portx` into a directory on your `PATH`.
+
+Planned release artifact names:
+
+- `portx-vX.Y.Z-aarch64-apple-darwin.tar.gz`
+- `portx-vX.Y.Z-x86_64-apple-darwin.tar.gz`
+- `portx-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz`
+
 ### Build from source
 
 ```bash
@@ -65,6 +75,19 @@ cargo run -- list
 ```bash
 cargo install --path .
 ```
+
+### Install from a release archive
+
+Example for macOS or Linux after downloading an archive:
+
+```bash
+tar -xzf portx-vX.Y.Z-<target>.tar.gz
+cd portx-vX.Y.Z-<target>
+chmod +x portx
+mv portx /usr/local/bin/portx
+```
+
+You may choose a different destination as long as it is on your `PATH`.
 
 ## Usage
 
@@ -207,6 +230,21 @@ See also:
 
 - [CHANGELOG.md](./CHANGELOG.md)
 - [LICENSE](./LICENSE)
+
+## Distribution
+
+For other users, the most practical distribution options are:
+
+- source install with `cargo install --path .`
+- prebuilt archives from GitHub Releases
+
+This repository includes a GitHub Actions workflow that builds release archives for:
+
+- Apple Silicon macOS
+- Intel macOS
+- x86_64 Linux
+
+Pushing a tag like `v0.1.0` will build and upload release assets automatically.
 
 ## Current Limitations
 
