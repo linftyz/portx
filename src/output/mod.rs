@@ -5,7 +5,7 @@ mod text;
 use crate::{
     cli::ScopeArg,
     core::{KillPlan, KillResult, ListenerRecord, PortDetails},
-    error::Result,
+    error::{PortxError, Result},
 };
 
 pub fn print_list(records: &[ListenerRecord], scope: Option<ScopeArg>, json: bool) -> Result<()> {
@@ -59,4 +59,8 @@ pub fn print_watch_placeholder(port: u16, pid: Option<u32>) {
 
 pub fn print_watch_snapshot(port: u16, pid: Option<u32>, details: &[PortDetails]) -> Result<()> {
     text::print_watch_snapshot(port, pid, details)
+}
+
+pub fn print_error(error: &PortxError) {
+    text::print_error(error);
 }

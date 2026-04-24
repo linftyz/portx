@@ -2,7 +2,7 @@ use std::{env, io::IsTerminal};
 
 use colored::{ColoredString, Colorize};
 
-use crate::core::{ListenerRecord, PortWarning, Scope};
+use crate::core::PortWarning;
 
 pub fn accent(value: &str) -> String {
     paint(value, |text| text.cyan().bold())
@@ -60,14 +60,6 @@ pub fn table_warning_cell(warnings: &str, width: usize) -> String {
     }
 }
 
-pub fn scope_breakdown(records: &[ListenerRecord]) -> String {
-    let counts = count_scopes(records);
-    format!(
-        "Public: {}  Lan: {}  Local: {}",
-        counts.public, counts.lan, counts.local
-    )
-}
-
 pub fn warning_text(warnings: &[PortWarning]) -> String {
     if warnings.is_empty() {
         "-".to_string()
@@ -100,28 +92,4 @@ where
 fn pad_left(value: &str, width: usize) -> String {
     let padding = width.saturating_sub(value.chars().count());
     format!("{value}{:padding$}", "", padding = padding)
-}
-
-struct ScopeCounts {
-    public: usize,
-    lan: usize,
-    local: usize,
-}
-
-fn count_scopes(records: &[ListenerRecord]) -> ScopeCounts {
-    let mut counts = ScopeCounts {
-        public: 0,
-        lan: 0,
-        local: 0,
-    };
-
-    for record in records {
-        match record.scope {
-            Scope::Public => counts.public += 1,
-            Scope::Lan => counts.lan += 1,
-            Scope::Local => counts.local += 1,
-        }
-    }
-
-    counts
 }

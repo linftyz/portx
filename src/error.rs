@@ -22,6 +22,8 @@ pub enum PortxError {
     PidNotOnPort { port: u16, pid: u32 },
     #[error("refusing to kill without confirmation in a non-interactive terminal; pass --yes")]
     ConfirmationRequired,
+    #[error("kill cancelled")]
+    OperationCancelled,
     #[error("kill signal is not supported on this platform")]
     UnsupportedSignal,
     #[error("the TUI requires an interactive terminal")]
@@ -44,6 +46,7 @@ impl PortxError {
             | Self::MultiplePidsForPort { .. }
             | Self::PidNotOnPort { .. }
             | Self::ConfirmationRequired
+            | Self::OperationCancelled
             | Self::UnsupportedSignal
             | Self::TuiRequiresTerminal
             | Self::KillFailed { .. }
