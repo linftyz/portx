@@ -206,8 +206,6 @@ cargo test
 See also:
 
 - [CHANGELOG.md](./CHANGELOG.md)
-- [CONTRIBUTING.md](./CONTRIBUTING.md)
-- [RELEASING.md](./RELEASING.md)
 - [LICENSE](./LICENSE)
 
 ## Current Limitations

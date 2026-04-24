@@ -69,6 +69,7 @@ struct App {
     details: Vec<PortDetails>,
     selected: usize,
     detail_focus: bool,
+    detail_scroll: u16,
     show_help: bool,
     kill_prompt: bool,
     status: Option<StatusMessage>,
@@ -82,6 +83,7 @@ impl Default for App {
             details: Vec::new(),
             selected: 0,
             detail_focus: false,
+            detail_scroll: 0,
             show_help: false,
             kill_prompt: false,
             status: None,
@@ -136,9 +138,27 @@ impl App {
 
         match key.code {
             KeyCode::Char('q') => return Ok(true),
-            KeyCode::Esc => self.detail_focus = false,
-            KeyCode::Down => self.next(service)?,
-            KeyCode::Up => self.previous(service)?,
+            KeyCode::Esc => {
+                self.detail_focus = false;
+                self.detail_scroll = 0;
+            }
+            KeyCode::Down => {
+                if self.detail_focus {
+                    self.scroll_details_down(1);
+                } else {
+                    self.next(service)?;
+                }
+            }
+            KeyCode::Up => {
+                if self.detail_focus {
+                    self.scroll_details_up(1);
+                } else {
+                    self.previous(service)?;
+                }
+            }
+            KeyCode::PageDown => self.scroll_details_down(8),
+            KeyCode::PageUp => self.scroll_details_up(8),
+            KeyCode::Home => self.detail_scroll = 0,
             KeyCode::Enter => self.detail_focus = !self.detail_focus,
             KeyCode::Char('k') => self.start_kill_prompt(),
             KeyCode::Char('?') | KeyCode::Char('h') => self.show_help = true,
@@ -186,6 +206,7 @@ impl App {
 
         self.selected = (self.selected + 1) % self.records.len();
         self.details = self.current_details(service)?;
+        self.detail_scroll = 0;
         Ok(())
     }
 
@@ -200,6 +221,7 @@ impl App {
             self.selected - 1
         };
         self.details = self.current_details(service)?;
+        self.detail_scroll = 0;
         Ok(())
     }
 
@@ -268,6 +290,14 @@ impl App {
         }
 
         self.selected.min(self.records.len() - 1)
+    }
+
+    fn scroll_details_down(&mut self, step: u16) {
+        self.detail_scroll = self.detail_scroll.saturating_add(step);
+    }
+
+    fn scroll_details_up(&mut self, step: u16) {
+        self.detail_scroll = self.detail_scroll.saturating_sub(step);
     }
 }
 
@@ -472,6 +502,7 @@ fn render_details(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
                 })
                 .title(title),
         )
+        .scroll((app.detail_scroll, 0))
         .wrap(Wrap { trim: true });
 
     frame.render_widget(paragraph, area);
@@ -499,7 +530,14 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(" move  ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                if app.detail_focus {
+                    " scroll  "
+                } else {
+                    " move  "
+                },
+                Style::default().fg(Color::Gray),
+            ),
             Span::styled(
                 "Enter",
                 Style::default()
@@ -507,6 +545,13 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" focus  ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                "PgUp/PgDn",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" details  ", Style::default().fg(Color::Gray)),
             Span::styled(
                 "k",
                 Style::default()
@@ -587,6 +632,8 @@ fn render_help(frame: &mut Frame) {
         Line::from(""),
         Line::from("Up / Down  Move the selection in the listener list"),
         Line::from("Enter      Toggle detail focus mode"),
+        Line::from("PgUp/PgDn  Scroll details faster"),
+        Line::from("Home       Jump to the top of the details pane"),
         Line::from("Esc        Leave detail focus or close this help"),
         Line::from("k          Open the kill confirmation dialog"),
         Line::from("y / n      Confirm or cancel the kill dialog"),
@@ -607,6 +654,7 @@ fn render_help(frame: &mut Frame) {
         )),
         Line::from("The screen refreshes once per second."),
         Line::from("The selected row drives the details pane on the right."),
+        Line::from("When detail focus is on, Up / Down scroll details instead of changing rows."),
     ])
     .block(Block::default().borders(Borders::ALL).title("Help"))
     .wrap(Wrap { trim: true });

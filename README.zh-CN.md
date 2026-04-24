@@ -206,8 +206,6 @@ cargo test
 另见：
 
 - [CHANGELOG.md](./CHANGELOG.md)
-- [CONTRIBUTING.md](./CONTRIBUTING.md)
-- [RELEASING.md](./RELEASING.md)
 - [LICENSE](./LICENSE)
 
 ## 当前限制
